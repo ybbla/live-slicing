@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.ipynb_checkpoints/
+
+# Build / distribution
+build/
+dist/
+pip-wheel-metadata/
+
+# Test / coverage
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# Secrets and environment
+.env
+.env.local
+.env.*.local
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Logs
+*.log
+logs/
+
+# Database / local cache
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.cache/
+
+# Generated output directories
+edit/
+edit_*/
+data/uploads/
+data/output/
+
+# Large media files (test inputs / outputs)
+*.mp4
+*.wav
+*.mov
+*.avi
+*.mkv
+*.flv
+*.webm
+*.mp3
+*.aac
+*.flac
+*.m4a
+*.srt
+*.ass
+
+# Playwright
+.playwright-cli/
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Claude Code
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# OS
+Thumbs.db
+Thumbs.db:encryptable
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+desktop.ini

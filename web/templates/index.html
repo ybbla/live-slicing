@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能直播切片</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success: #16a34a;
+    --warn: #d97706;
+    --danger: #dc2626;
+    --stage-pending: #e5e7eb;
+    --stage-active: #fbbf24;
+    --stage-done: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 24px;
+    line-height: 1.6;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h2 { font-size: 16px; margin: 0 0 12px; }
+
+  .alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  .alert-danger { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+  .alert-warn { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+  .alert-ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+
+  label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  select, input[type=checkbox] { font-size: 14px; }
+  select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: #fff; font-size: 14px;
+  }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+  .checkbox-row input { width: 18px; height: 18px; }
+  .checkbox-row label { margin: 0; font-weight: normal; font-size: 14px; color: var(--muted); }
+
+  button {
+    background: var(--primary); color: #fff; border: none;
+    padding: 11px 22px; border-radius: 8px; font-size: 15px;
+    cursor: pointer; font-weight: 500; transition: background 0.15s;
+  }
+  button:hover:not(:disabled) { background: var(--primary-hover); }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  button.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  button.secondary:hover:not(:disabled) { background: #f3f4f6; }
+
+  /* Stages */
+  .stages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+  .stage {
+    text-align: center; padding: 12px 8px; border-radius: 8px;
+    background: #f9fafb; border: 1px solid var(--border);
+  }
+  .stage.done { background: #f0fdf4; border-color: #86efac; }
+  .stage.active { background: #fffbeb; border-color: #fcd34d; }
+  .stage .stage-name { font-size: 14px; font-weight: 500; }
+  .stage .stage-pct { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Progress bar */
+  .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+  .progress-fill { height: 100%; background: var(--primary); transition: width 0.4s; border-radius: 4px; }
+  .progress-msg { font-size: 13px; color: var(--muted); }
+
+  /* Log */
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-size: 14px; color: var(--muted); user-select: none; }
+  .log-box {
+    background: #1e293b; color: #e2e8f0; font-family: "Consolas", "Cascadia Code", "Microsoft YaHei Mono", monospace;
+    font-size: 12px; padding: 12px; border-radius: 8px; margin-top: 8px;
+    max-height: 280px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;
+    text-align: left;
+  }
+
+  /* Results */
+  .clip-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+    margin-bottom: 12px; background: #fff;
+  }
+  .clip-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+  .clip-title { font-weight: 600; font-size: 15px; }
+  .clip-meta { font-size: 13px; color: var(--muted); }
+  .qc-warn { color: var(--warn); font-size: 13px; background: #fffbeb; padding: 6px 10px; border-radius: 6px; margin: 8px 0; }
+  .clip-reason { font-size: 13px; color: #374151; margin: 6px 0 10px; }
+  video { width: 100%; max-width: 480px; border-radius: 8px; background: #000; margin-bottom: 8px; }
+  .clip-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .clip-actions a, .clip-actions button {
+    font-size: 13px; padding: 6px 14px; border-radius: 6px;
+    text-decoration: none; display: inline-block;
+  }
+  .clip-actions a { background: var(--primary); color: #fff; }
+  .clip-actions a.srt { background: #f3f4f6; color: var(--text); border: 1px solid var(--border); }
+
+  .hidden { display: none !important; }
+  .video-info { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+  /* Upload area */
+  .drop-area {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 24px;
+    text-align: center; cursor: pointer; transition: all 0.15s;
+    margin-top: 8px; background: #fafafa;
+  }
+  .drop-area:hover, .drop-area.dragover {
+    border-color: var(--primary); background: #eff6ff;
+  }
+  .drop-area .drop-icon { font-size: 32px; margin-bottom: 8px; }
+  .drop-area .drop-text { font-size: 14px; color: var(--text); }
+  .drop-area .drop-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .selected-video {
+    background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+    padding: 12px; margin: 12px 0;
+  }
+  .selected-video .name { font-weight: 500; font-size: 14px; }
+  .selected-video .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .upload-progress { margin: 12px 0; }
+  .upload-progress .progress-bar { height: 6px; }
+  .upload-progress .status { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* History section */
+  .history-card { margin-top: 24px; }
+  .history-item {
+    border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+    margin-bottom: 12px; background: #fff;
+  }
+  .history-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .history-title { font-weight: 600; font-size: 15px; }
+  .history-meta { font-size: 13px; color: var(--muted); }
+  .history-clips { margin-top: 8px; }
+  .history-clip {
+    padding: 8px 0; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center;
+  }
+  .history-clip:last-child { border-bottom: none; }
+  .history-clip-title { font-size: 14px; }
+  .history-clip-meta { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎬 智能直播切片</h1>
+  <p class="subtitle">一键从长直播自动剪出高光短视频</p>
+
+  <!-- Config check warnings -->
+  <div id="env-warn"></div>
+
+  <!-- Config card -->
+  <div class="card" id="config-card">
+    <h2>上传视频</h2>
+
+    <div class="drop-area" id="drop-area">
+      <input type="file" id="file-input" accept=".mp4,video/mp4" hidden>
+      <div class="drop-icon">📤</div>
+      <div class="drop-text">拖拽 .mp4 文件到此处，或点击选择文件</div>
+    </div>
+
+    <div class="selected-video hidden" id="selected-video"></div>
+    <div class="upload-progress hidden" id="upload-progress">
+      <div class="progress-bar"><div class="progress-fill" id="upload-fill" style="width:0%"></div></div>
+      <div class="status" id="upload-status">准备上传...</div>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="subtitles-cb">
+      <label for="subtitles-cb">烧录字幕到视频画面（默认不勾，会生成独立 .srt 字幕文件）</label>
+    </div>
+
+    <button id="start-btn" disabled>🚀 开始切片</button>
+  </div>
+
+  <!-- Progress card -->
+  <div class="card hidden" id="progress-card">
+    <h2>处理中 <span id="video-label" style="font-weight:normal;color:var(--muted);font-size:14px;"></span></h2>
+
+    <div class="stages">
+      <div class="stage" data-stage="transcribe">
+        <div class="stage-name">🎤 转录</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="pack">
+        <div class="stage-name">📦 打包</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="select">
+        <div class="stage-name">🤖 豆包选段</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="render">
+        <div class="stage-name">🎞️ 渲染</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+    </div>
+
+    <div class="progress-bar"><div class="progress-fill" id="overall-fill" style="width:0%"></div></div>
+    <div class="progress-msg" id="progress-msg">准备中…</div>
+
+    <details>
+      <summary>📋 查看详细日志</summary>
+      <div class="log-box" id="log-box"></div>
+    </details>
+  </div>
+
+  <!-- Error card -->
+  <div class="card hidden" id="error-card">
+    <h2>❌ 出错了</h2>
+    <div class="alert alert-danger" id="error-msg"></div>
+    <button class="secondary" onclick="location.reload()">重新开始</button>
+  </div>
+
+  <!-- Results card -->
+  <div class="card hidden" id="results-card">
+    <h2>✅ 切片完成</h2>
+    <div id="results-summary"></div>
+    <button class="secondary" id="open-folder-btn" style="margin-bottom:16px;">📂 打开输出文件夹</button>
+    <div id="clips-list"></div>
+    <div style="margin-top:16px;"><button class="secondary" onclick="location.reload()">切另一个视频</button></div>
+  </div>
+
+  <!-- History card -->
+  <div class="card history-card" id="history-card">
+    <h2>📋 历史切片</h2>
+    <div id="history-list"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+let pollTimer = null;
+let currentClipsDir = null;
+let selectedVideo = null; // {path, name, size_mb, duration_str}
+
+function fmtDur(s) {
+  if (!s || s <= 0) return '';
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s/60), r = s%60;
+  if (m < 60) return `${m}m${String(r).padStart(2,'0')}s`;
+  const h = Math.floor(m/60), rm = m%60;
+  return `${h}h${rm}m`;
+}
+
+function fmtSize(mb) {
+  if (mb == null) return '';
+  if (mb < 1) return Math.round(mb*1024) + ' KB';
+  return mb.toFixed(1) + ' MB';
+}
+
+function setSelectedVideo(info) {
+  selectedVideo = info;
+  const el = $('#selected-video');
+  const durStr = info.duration_str ? `，${info.duration_str}` : '';
+  el.innerHTML = `<div class="name">✅ 已选择：${escapeHtml(info.name)}</div><div class="meta">${fmtSize(info.size_mb)}${durStr}</div>`;
+  el.classList.remove('hidden');
+  $('#start-btn').disabled = false;
+}
+
+function clearSelectedVideo() {
+  selectedVideo = null;
+  $('#selected-video').classList.add('hidden');
+  $('#start-btn').disabled = true;
+}
+
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const cfg = await r.json();
+  const warn = $('#env-warn');
+  warn.innerHTML = '';
+  if (!cfg.ffmpeg_ok) {
+    warn.innerHTML += '<div class="alert alert-danger">❌ 未检测到 ffmpeg/ffprobe，请安装后重启。命令：<code>winget install --id Gyan.FFmpeg -e</code></div>';
+  }
+  if (!cfg.env_ok) {
+    warn.innerHTML += '<div class="alert alert-danger">❌ .env 未配置，请在程序文件夹的 .env 文件中填写 VOLC_APP_KEY 和 ARK_API_KEY</div>';
+  }
+  return cfg;
+}
+
+// --- Drag & drop / click upload ---
+const dropArea = $('#drop-area');
+const fileInput = $('#file-input');
+const uploadProgress = $('#upload-progress');
+const uploadFill = $('#upload-fill');
+const uploadStatus = $('#upload-status');
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+  dropArea.addEventListener(ev, e => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+});
+['dragenter', 'dragover'].forEach(ev => {
+  dropArea.addEventListener(ev, () => dropArea.classList.add('dragover'));
+});
+['dragleave', 'drop'].forEach(ev => {
+  dropArea.addEventListener(ev, () => dropArea.classList.remove('dragover'));
+});
+
+dropArea.addEventListener('click', () => fileInput.click());
+
+dropArea.addEventListener('drop', e => {
+  const files = e.dataTransfer.files;
+  if (files.length) handleFileSelect(files[0]);
+});
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFileSelect(e.target.files[0]);
+});
+
+function handleFileSelect(file) {
+  if (!file.name.toLowerCase().endsWith('.mp4')) {
+    alert('只支持 .mp4 文件');
+    return;
+  }
+  clearSelectedVideo();
+  uploadFile(file);
+}
+
+function uploadFile(file) {
+  const xhr = new XMLHttpRequest();
+  const formData = new FormData();
+  formData.append('video', file);
+
+  uploadProgress.classList.remove('hidden');
+  uploadFill.style.width = '0%';
+  uploadStatus.textContent = `正在上传 ${file.name}... 0%`;
+
+  xhr.upload.addEventListener('progress', e => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      uploadFill.style.width = pct + '%';
+      const loadedMb = (e.loaded / 1024 / 1024).toFixed(1);
+      const totalMb = (e.total / 1024 / 1024).toFixed(1);
+      uploadStatus.textContent = `正在上传：${loadedMb} MB / ${totalMb} MB (${pct}%)`;
+    }
+  });
+
+  xhr.addEventListener('load', () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        uploadStatus.textContent = '✅ 上传完成';
+        setSelectedVideo(data);
+        // Auto-start processing after upload? Let user click start to be explicit
+        setTimeout(() => uploadProgress.classList.add('hidden'), 1000);
+      } catch(e) {
+        uploadStatus.textContent = '❌ 上传失败：响应解析错误';
+      }
+    } else {
+      let err = '上传失败';
+      try {
+        const data = JSON.parse(xhr.responseText);
+        err = data.error || err;
+      } catch(e) {}
+      uploadStatus.textContent = '❌ ' + err;
+    }
+  });
+
+  xhr.addEventListener('error', () => {
+    uploadStatus.textContent = '❌ 上传失败：网络错误';
+  });
+
+  xhr.open('POST', '/api/upload');
+  xhr.send(formData);
+}
+
+// --- Start processing ---
+$('#start-btn').addEventListener('click', async () => {
+  if (!selectedVideo) { alert('请先选择视频'); return; }
+  const subtitles = $('#subtitles-cb').checked;
+
+  $('#start-btn').disabled = true;
+  $('#drop-area').style.pointerEvents = 'none';
+  $('#drop-area').style.opacity = '0.6';
+  $('#config-card').classList.add('hidden');
+  $('#progress-card').classList.remove('hidden');
+  $('#video-label').textContent = '— ' + selectedVideo.name;
+
+  const r = await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({video: selectedVideo.path, subtitles}),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    showError(data.error || '启动失败');
+    return;
+  }
+
+  pollTimer = setInterval(pollStatus, 1000);
+  pollStatus();
+});
+
+function showError(msg) {
+  $('#progress-card').classList.add('hidden');
+  $('#error-card').classList.remove('hidden');
+  $('#error-msg').textContent = msg;
+  if (pollTimer) clearInterval(pollTimer);
+}
+
+function stageLabel(s) {
+  return {transcribe:'🎤 转录', pack:'📦 打包', select:'🤖 豆包选段', render:'🎞️ 渲染', done:'✅ 完成'}[s] || s;
+}
+
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    if (s.status === 'idle') return;
+
+    // Update stages
+    const stages = ['transcribe','pack','select','render'];
+    for (const st of stages) {
+      const el = document.querySelector(`.stage[data-stage="${st}"]`);
+      const pctEl = el.querySelector('[data-pct]');
+      el.classList.remove('active','done');
+      if (s.current_stage === st && s.status === 'running') {
+        el.classList.add('active');
+        pctEl.textContent = s.stage_percent + '%';
+      } else if (stages.indexOf(s.current_stage) > stages.indexOf(st) || s.status === 'done') {
+        el.classList.add('done');
+        pctEl.textContent = '✓';
+      } else {
+        pctEl.textContent = '等待';
+      }
+    }
+
+    $('#overall-fill').style.width = s.percent + '%';
+    $('#progress-msg').textContent = s.message || '';
+
+    // Log
+    const log = $('#log-box');
+    const newLines = (s.log_lines || []).join('\n');
+    if (newLines !== log.textContent) {
+      log.textContent = newLines;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    if (s.status === 'error') {
+      showError(s.error || '未知错误');
+      return;
+    }
+    if (s.status === 'done') {
+      clearInterval(pollTimer);
+      showResults(s);
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function renderClipList(container, clips, clipsBaseUrl) {
+  container.innerHTML = '';
+  clips.forEach((c, i) => {
+    const card = document.createElement('div');
+    card.className = 'clip-card';
+    const qc = c.qc_flag ? `<div class="qc-warn">⚠️ 建议人工复看：${c.qc_flag}</div>` : '';
+    const srtLink = c.srt ? `<a class="srt" href="${clipsBaseUrl}/${c.srt}" download>下载字幕 (.srt)</a>` : '';
+    card.innerHTML = `
+      <div class="clip-header">
+        <div class="clip-title">#${c.index} ${c.title || '（无标题）'}</div>
+        <div class="clip-meta">${fmtDur(c.duration)}</div>
+      </div>
+      ${c.reason ? `<div class="clip-reason">${escapeHtml(c.reason)}</div>` : ''}
+      ${qc}
+      <video controls preload="metadata" src="${clipsBaseUrl}/${c.file}"></video>
+      <div class="clip-actions">
+        <a href="${clipsBaseUrl}/${c.file}" download>⬇ 下载 MP4</a>
+        ${srtLink}
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function showResults(s) {
+  $('#progress-card').classList.add('hidden');
+  $('#results-card').classList.remove('hidden');
+  currentClipsDir = s.clips_dir;
+
+  const clips = (s.manifest && s.manifest.clips) || [];
+  const totalDur = clips.reduce((a,c) => a + (c.duration||0), 0);
+
+  $('#results-summary').innerHTML =
+    `<div class="alert alert-ok">共生成 <b>${clips.length}</b> 条切片，总时长 ${fmtDur(totalDur)}</div>`;
+
+  renderClipList($('#clips-list'), clips, '/clips');
+
+  // Reload history to show new item
+  loadHistory();
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch('/api/history');
+    const data = await r.json();
+    const container = $('#history-list');
+    const card = $('#history-card');
+    if (!data.items || data.items.length === 0) {
+      card.classList.add('hidden');
+      return;
+    }
+    card.classList.remove('hidden');
+    container.innerHTML = '';
+    data.items.forEach((item, idx) => {
+      const totalDur = item.clips.reduce((a,c) => a + (c.duration||0), 0);
+      const date = new Date(item.created_at * 1000);
+      const dateStr = date.toLocaleString('zh-CN');
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.innerHTML = `
+        <div class="history-header">
+          <div class="history-title">${escapeHtml(item.video_name)}</div>
+          <div class="history-meta">${dateStr} · ${item.clip_count}条切片 · 总时长 ${fmtDur(totalDur)}</div>
+        </div>
+        <div class="history-actions" style="margin-bottom: 8px;">
+          <button class="secondary btn-open-folder" style="font-size:13px;padding:4px 12px;" data-path="${item.clips_dir}">📂 打开文件夹</button>
+          <button class="secondary btn-toggle-clips" style="font-size:13px;padding:4px 12px;" data-idx="${idx}">▶ 查看切片</button>
+        </div>
+        <div class="history-clips hidden" id="history-clips-${idx}"></div>
+      `;
+      container.appendChild(div);
+      // Render clips hidden
+      const clipsContainer = div.querySelector(`#history-clips-${idx}`);
+      renderClipList(clipsContainer, item.clips, '/clips');
+    });
+    // Bind open folder buttons for history
+    $$('.btn-open-folder').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const path = btn.dataset.path;
+        await fetch('/api/open-folder', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({path}),
+        });
+      });
+    });
+    // Bind toggle clips buttons
+    $$('.btn-toggle-clips').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = btn.dataset.idx;
+        const clipsEl = $(`#history-clips-${idx}`);
+        const isHidden = clipsEl.classList.contains('hidden');
+        clipsEl.classList.toggle('hidden');
+        btn.textContent = isHidden ? '▼ 收起切片' : '▶ 查看切片';
+      });
+    });
+  } catch(e) {
+    console.error('Failed to load history:', e);
+  }
+}
+
+function escapeHtml(t) {
+  const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
+}
+
+$('#open-folder-btn').addEventListener('click', async () => {
+  await fetch('/api/open-folder', {method:'POST'});
+});
+
+loadConfig();
+loadHistory();
+</script>
+</body>
+</html>

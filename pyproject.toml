@@ -1,0 +1,24 @@
+[project]
+name = "live-slicing"
+version = "0.1.0"
+description = "智能直播切片工具 — 从长直播自动抽出高光短视频 (Volcengine ASR + Doubao LLM + FFmpeg)"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "requests>=2.31",
+    "openai>=1.30",
+    "numpy>=1.26",
+    "pillow>=10.0",
+]
+
+[project.scripts]
+liveslicing = "liveslicing.cli:main"
+live-slice = "liveslicing.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["liveslicing*", "web*"]
