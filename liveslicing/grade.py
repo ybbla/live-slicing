@@ -1,28 +1,19 @@
-"""Apply a color grade to a video via ffmpeg filter chain.
+"""视频调色模块：通过ffmpeg滤镜链为视频应用色彩校正。
 
-Two modes:
+支持两种调色模式：
+1. 预设模式：选择已命名的调色预设（如warm_cinematic暖色调电影感、neutral_punch中性通透），应用固定滤镜链
+2. 自动模式（默认）：通过ffmpeg采样视频帧，数学分析亮度、对比度、饱和度，生成温和的逐片段校正滤镜，
+   所有调整幅度硬限制在±8%以内，目标是"让画面干净但看不出调过色"，不会应用创意性色彩偏移（如青橙色调、电影曲线），
+   仅修正欠曝、对比度不足、饱和度异常等问题。需要创意风格请显式使用--preset指定。
 
-  1. Preset mode — pick a named preset (e.g. `warm_cinematic`, `neutral_punch`).
-     Simple fixed filter chain applied uniformly.
+使用示例：
+    python -m liveslicing.grade 输入.mp4 -o 输出.mp4                   # 自动模式
+    python -m liveslicing.grade 输入.mp4 -o 输出.mp4 --preset warm_cinematic # 暖色调电影预设
+    python -m liveslicing.grade 输入.mp4 -o 输出.mp4 --filter 'eq=contrast=1.1' # 自定义滤镜
+    python -m liveslicing.grade --print-preset warm_cinematic         # 仅打印预设滤镜
+    python -m liveslicing.grade --analyze 输入.mp4                     # 打印自动调色分析结果
 
-  2. Auto mode (DEFAULT) — analyze the clip mathematically and emit a subtle
-     per-clip correction. Samples N frames via ffmpeg, computes mean brightness,
-     RMS contrast, saturation. Emits a bounded filter string that corrects
-     under-exposure, flatness, and mild desaturation without applying any
-     creative color shift. All adjustments capped at ±8% on any axis.
-
-     The goal is "make it look clean without looking graded". Never applies
-     creative LUTs, teal/orange splits, or filmic curves. For creative looks,
-     use `--preset warm_cinematic` explicitly.
-
-Usage:
-    python helpers/grade.py <input> -o <output>                   # auto mode
-    python helpers/grade.py <input> -o <output> --preset warm_cinematic
-    python helpers/grade.py <input> -o <output> --filter 'eq=contrast=1.1'
-    python helpers/grade.py --print-preset warm_cinematic         # print filter only
-    python helpers/grade.py --analyze <input>                     # print auto-grade analysis
-
-Can also be imported by render.py: `get_preset(name)` and `auto_grade_for_clip(path, edl_range)`.
+被render.py导入使用：提供get_preset(name)获取预设滤镜、auto_grade_for_clip(path, range)生成自动调色滤镜。
 """
 
 from __future__ import annotations
@@ -36,19 +27,17 @@ from pathlib import Path
 
 
 PRESETS: dict[str, str] = {
-    # Subtle baseline — barely perceptible cleanup. No color shift.
-    # Use when auto-analysis isn't available or when you want a safe floor.
-    "subtle": "eq=contrast=1.03:saturation=0.98",
+    # 轻度增强：几乎不可察觉的清理，无色彩偏移，自动分析不可用时的安全默认值
+    "light": "eq=contrast=1.03:saturation=0.98",
 
-    # Minimal corrective grade: light contrast + subtle S-curve, no color shifts.
+    # 最小校正预设：轻微提升对比度+S曲线，无色彩偏移
     "neutral_punch": (
         "eq=contrast=1.06:brightness=0.0:saturation=1.0,"
         "curves=master='0/0 0.25/0.23 0.75/0.77 1/1'"
     ),
 
-    # OPT-IN creative preset for retro/cinematic looks ONLY. Not a default.
-    # +12% contrast, crushed blacks, -12% sat, warm shadows + cool highs, filmic curve.
-    # Originally from HEURISTICS §6 — too aggressive for standard launch content.
+    # 可选创意预设：仅用于复古/电影感风格，不是默认值
+    # +12%对比度、压暗黑场、-12%饱和度、暖阴影冷高光、电影曲线，效果偏强不适合常规直播切片
     "warm_cinematic": (
         "eq=contrast=1.12:brightness=-0.02:saturation=0.88,"
         "colorbalance="
@@ -58,21 +47,31 @@ PRESETS: dict[str, str] = {
         "curves=master='0/0 0.25/0.22 0.75/0.78 1/1'"
     ),
 
-    # Flat — no grade. Useful as a sentinel for "skip grading this source".
+    # 无调色：直接复制流，用于不需要调色的场景
     "none": "",
 }
 
 
 def get_preset(name: str) -> str:
-    """Return the ffmpeg filter string for a preset name. Empty string for 'none'."""
+    """根据预设名称返回对应的ffmpeg滤镜字符串，"none"返回空字符串。
+
+    Args:
+        name: 预设名称
+
+    Returns:
+        ffmpeg滤镜字符串
+
+    Raises:
+        KeyError: 预设不存在时抛出，提示可用预设列表
+    """
     if name not in PRESETS:
         raise KeyError(
-            f"unknown preset '{name}'. Available: {', '.join(sorted(PRESETS))}"
+            f"未知预设'{name}'，可用预设: {', '.join(sorted(PRESETS))}"
         )
     return PRESETS[name]
 
 
-# -------- Auto grade (data-driven, per-clip) --------------------------------
+# -------- 自动调色（数据驱动，逐片段校正） --------------------------------
 
 
 def _sample_frame_stats(
@@ -81,21 +80,26 @@ def _sample_frame_stats(
     duration: float,
     n_samples: int = 10,
 ) -> dict[str, float]:
-    """Sample N frames from a range and compute brightness/contrast/saturation stats.
+    """在指定时间范围内采样N帧，计算亮度/对比度/饱和度统计值。
 
-    Uses ffmpeg's `signalstats` filter which gives us YMIN, YMAX, YAVG, SATAVG
-    etc. in the metadata. We average across the sample range.
+    使用ffmpeg的`signalstats`滤镜从stderr输出中获取每帧的YMIN/YMAX/YAVG/SATAVG等元数据，
+    自动适配源位深（8bit/10bit）将所有值归一化到0~1区间。
+
+    Args:
+        video: 视频文件路径
+        start: 采样起始时间（秒）
+        duration: 采样时长（秒）
+        n_samples: 采样帧数，默认10帧
 
     Returns:
+        统计值字典:
         {
-          "y_mean":   mean Y (luma) in 0..1,
-          "y_std":    approximate stddev of Y across samples (0..1),
-          "sat_mean": mean saturation in 0..1,
+          "y_mean":   平均亮度（0~1）,
+          "y_std":    亮度标准差近似值（0~1）,
+          "sat_mean": 平均饱和度（0~1）,
         }
+        采样失败时返回中性默认值（无校正）
     """
-    # Use signalstats + metadata=print to get per-frame stats.
-    # metadata=print goes to stderr by default — we capture it directly to avoid
-    # Windows path-drive ':' breaking the filterchain parser (file= path issue).
     fps = max(0.5, min(n_samples / max(duration, 0.1), 10.0))
 
     cmd = [
@@ -106,13 +110,10 @@ def _sample_frame_stats(
         "-vf", f"fps={fps:.2f},signalstats,metadata=print",
         "-f", "null", "-",
     ]
-    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    proc = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     meta_text = proc.stderr
 
-    # Parse signalstats metadata. Signalstats reports values in the NATIVE
-    # bit depth of the decoded frame (8-bit → 0-255, 10-bit → 0-1023). We
-    # read YBITDEPTH and normalize by (2^depth - 1) so downstream math is
-    # in 0..1 regardless of source bit depth.
+    # 解析signalstats元数据，自动适配源位深
     y_avgs: list[float] = []
     y_mins: list[float] = []
     y_maxs: list[float] = []
@@ -120,6 +121,7 @@ def _sample_frame_stats(
     bit_depth: int = 8
 
     def _parse_value(line: str) -> float | None:
+        """从元数据行中解析数值，失败返回None"""
         try:
             return float(line.rsplit("=", 1)[1])
         except (ValueError, IndexError):
@@ -149,10 +151,10 @@ def _sample_frame_stats(
                 sat_avgs.append(v)
 
     if not y_avgs:
-        # Analysis failed — return neutral defaults (no correction)
+        # 采样失败返回中性默认值（无校正）
         return {"y_mean": 0.5, "y_std": 0.18, "sat_mean": 0.25}
 
-    # Normalize by native bit-depth max value
+    # 按源位深最大值归一化到0~1区间
     max_val = (2 ** bit_depth) - 1
 
     y_mean = (sum(y_avgs) / len(y_avgs)) / max_val
@@ -165,7 +167,7 @@ def _sample_frame_stats(
 
     return {
         "y_mean": y_mean,
-        "y_std": y_range / 4.0,  # range ÷ 4 ≈ stddev for normal-ish distributions
+        "y_std": y_range / 4.0,  # 正态分布下range/4≈标准差
         "sat_mean": sat_mean,
     }
 
@@ -176,18 +178,26 @@ def auto_grade_for_clip(
     duration: float | None = None,
     verbose: bool = False,
 ) -> tuple[str, dict[str, float]]:
-    """Analyze a clip range and emit a subtle per-clip correction filter.
+    """分析指定片段范围，生成温和的逐片段校正滤镜。
 
-    Returns (filter_string, stats_dict). The filter is bounded to ±8% on any axis
-    and applies NO color shift. It only addresses:
-      - Underexposure (lift gamma slightly if too dark)
-      - Flatness (tiny contrast boost if range is narrow)
-      - Desaturation (tiny sat boost if extremely flat)
+    所有调整幅度硬限制在±8%以内，无色彩偏移，仅修正：
+    - 欠曝：画面过暗时轻微提升gamma
+    - 对比度不足：动态范围窄时轻微提升对比度
+    - 饱和度异常：饱和度过低时轻微提升
 
-    If the clip is already well-balanced, returns the baseline `subtle` preset.
+    画面已经均衡时返回subtle基线预设。
+
+    Args:
+        video: 视频文件路径
+        start: 片段起始时间（秒）
+        duration: 片段时长（秒），None时自动探测整个视频时长
+        verbose: 是否打印分析详情
+
+    Returns:
+        (滤镜字符串, 统计值字典)元组，滤镜为空字符串时表示无需校正直接复制
     """
     if duration is None:
-        # Probe duration
+        # 自动探测视频时长
         probe_cmd = [
             "ffprobe", "-v", "error",
             "-show_entries", "format=duration",
@@ -202,48 +212,46 @@ def auto_grade_for_clip(
     stats = _sample_frame_stats(video, start, duration)
 
     y_mean = stats["y_mean"]
-    y_range = stats["y_std"] * 4.0  # back to range
+    y_range = stats["y_std"] * 4.0  # 还原为动态范围
     sat_mean = stats["sat_mean"]
 
-    # ------ Decision rules ---------------------------------------------------
-    # All caps bounded to ±8%. Target "clean, not graded".
+    # ------ 决策规则 ---------------------------------------------------
+    # 所有调整硬限制在±8%以内，目标"干净但看不出调过色"
 
-    # Contrast: target y_range ≈ 0.72. Boost gently if flat, never reduce.
+    # 对比度：目标y_range≈0.72，画面平的时候轻微提升，从不降低对比度
     contrast_adj = 1.0
     if y_range < 0.65:
-        # Map [0.50, 0.65] → [1.08, 1.03]
+        # 动态范围[0.50, 0.65]映射到对比度[1.08, 1.03]
         t = max(0.0, min(1.0, (y_range - 0.50) / 0.15))
         contrast_adj = 1.08 - 0.05 * t
     else:
-        contrast_adj = 1.03  # subtle baseline
+        contrast_adj = 1.03  # 基线轻微提升
 
-    # Gamma: target y_mean ≈ 0.48. Lift gently if too dark.
+    # Gamma：目标y_mean≈0.48，过暗时轻微提升gamma
     gamma_adj = 1.0
     if y_mean < 0.42:
-        # Map [0.30, 0.42] → [1.10, 1.02]
+        # 亮度[0.30, 0.42]映射到gamma[1.10, 1.02]
         t = max(0.0, min(1.0, (y_mean - 0.30) / 0.12))
         gamma_adj = 1.10 - 0.08 * t
     elif y_mean > 0.60:
-        # Slightly overexposed — tiny pullback
+        # 过曝时轻微压暗
         gamma_adj = 0.97
 
-    # Saturation: target sat_mean ≈ 0.25. Never desaturate aggressively;
-    # modest boost if very flat. Default to 0.98 (tiny pullback — most digital
-    # video is slightly over-saturated on consumer displays).
+    # 饱和度：目标sat_mean≈0.25，默认轻微降饱和（消费级相机普遍饱和略高）
     sat_adj = 0.98
     if sat_mean < 0.18:
-        # Very flat — tiny boost
+        # 饱和度极低时轻微提升
         sat_adj = 1.04
     elif sat_mean > 0.38:
-        # Already punchy — hold
+        # 饱和度过高时轻微降低
         sat_adj = 0.96
 
-    # Clamp all adjustments hard
+    # 硬限制所有调整幅度
     contrast_adj = max(0.94, min(1.08, contrast_adj))
     gamma_adj = max(0.94, min(1.10, gamma_adj))
     sat_adj = max(0.94, min(1.06, sat_adj))
 
-    # Build filter string
+    # 拼接滤镜字符串，差值≤0.005的参数省略（变化不可感知）
     eq_parts = []
     if abs(contrast_adj - 1.0) > 0.005:
         eq_parts.append(f"contrast={contrast_adj:.3f}")
@@ -258,15 +266,22 @@ def auto_grade_for_clip(
         filter_string = "eq=" + ":".join(eq_parts)
 
     if verbose:
-        print(f"  auto-grade stats:")
-        print(f"    y_mean={y_mean:.3f}  y_range={y_range:.3f}  sat_mean={sat_mean:.3f}")
-        print(f"    → contrast={contrast_adj:.3f}  gamma={gamma_adj:.3f}  sat={sat_adj:.3f}")
-        print(f"    → filter: {filter_string or '(empty)'}")
+        print(f"  自动调色分析:")
+        print(f"    平均亮度={y_mean:.3f}  动态范围={y_range:.3f}  平均饱和度={sat_mean:.3f}")
+        print(f"    → 对比度调整={contrast_adj:.3f}  gamma调整={gamma_adj:.3f}  饱和度调整={sat_adj:.3f}")
+        print(f"    → 滤镜: {filter_string or '(无调整，直接复制)'}")
 
     return filter_string, stats
 
 
 def apply_grade(input_path: Path, output_path: Path, filter_string: str) -> None:
+    """应用调色滤镜到视频。
+
+    Args:
+        input_path: 输入视频路径
+        output_path: 输出视频路径
+        filter_string: ffmpeg滤镜字符串，为空时直接复制流
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not filter_string:
         cmd = [
@@ -287,45 +302,45 @@ def apply_grade(input_path: Path, output_path: Path, filter_string: str) -> None
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Apply a color grade via ffmpeg filter chain")
-    ap.add_argument("input", type=Path, nargs="?", help="Input video")
-    ap.add_argument("-o", "--output", type=Path, help="Output video")
+    ap = argparse.ArgumentParser(description="通过ffmpeg滤镜链为视频应用调色")
+    ap.add_argument("input", type=Path, nargs="?", help="输入视频路径")
+    ap.add_argument("-o", "--output", type=Path, help="输出视频路径")
     ap.add_argument(
         "--preset",
         type=str,
         default=None,
         choices=list(PRESETS.keys()),
-        help="Grade preset. Omit for auto mode (default).",
+        help="调色预设，留空默认使用自动调色",
     )
     ap.add_argument(
         "--filter",
         type=str,
         default=None,
-        help="Raw ffmpeg filter string. Overrides --preset.",
+        help="自定义ffmpeg滤镜字符串，优先级高于--preset",
     )
     ap.add_argument(
         "--analyze",
         type=Path,
         default=None,
-        help="Analyze a clip and print the auto-grade filter it would produce. No output written.",
+        help="分析视频并打印自动调色结果，不写入输出文件",
     )
     ap.add_argument(
         "--print-preset",
         type=str,
         default=None,
-        help="Print the filter string for a preset and exit. No input/output needed.",
+        help="打印指定预设的滤镜字符串后退出，无需输入输出文件",
     )
     ap.add_argument(
         "--list-presets",
         action="store_true",
-        help="List available presets and exit.",
+        help="列出所有可用预设后退出",
     )
     args = ap.parse_args()
 
     if args.list_presets:
         for name, f in PRESETS.items():
             print(f"{name}:")
-            print(f"  {f}" if f else "  (no filter)")
+            print(f"  {f}" if f else "  (无滤镜，直接复制)")
             print()
         return
 
@@ -335,35 +350,35 @@ def main() -> None:
 
     if args.analyze is not None:
         if not args.analyze.exists():
-            sys.exit(f"input not found: {args.analyze}")
+            sys.exit(f"输入文件不存在: {args.analyze}")
         filter_string, stats = auto_grade_for_clip(args.analyze, verbose=True)
-        print(f"\nfilter: {filter_string or '(none)'}")
-        print(f"stats:  {json.dumps(stats, indent=2)}")
+        print(f"\n滤镜: {filter_string or '(无调整)'}")
+        print(f"统计值:  {json.dumps(stats, indent=2)}")
         return
 
     if not args.input or not args.output:
-        ap.error("input and -o/--output are required unless using --analyze/--print-preset/--list-presets")
+        ap.error("使用非查询类功能时必须指定input和-o/--output参数")
 
     if not args.input.exists():
-        sys.exit(f"input not found: {args.input}")
+        sys.exit(f"输入文件不存在: {args.input}")
 
-    # Decide filter string
+    # 决定使用的滤镜
     if args.filter is not None:
         filter_string = args.filter
     elif args.preset is not None:
         filter_string = get_preset(args.preset)
     else:
-        # Auto mode (default)
+        # 默认自动调色模式
         filter_string, _ = auto_grade_for_clip(args.input, verbose=True)
 
-    print(f"grading {args.input.name} → {args.output.name}")
+    print(f"正在调色 {args.input.name} → {args.output.name}")
     if filter_string:
-        print(f"  filter: {filter_string[:120]}{'...' if len(filter_string) > 120 else ''}")
+        print(f"  滤镜: {filter_string[:120]}{'...' if len(filter_string) > 120 else ''}")
     else:
-        print("  filter: (none — copy)")
+        print("  滤镜: (无调整，直接复制)")
 
     apply_grade(args.input, args.output, filter_string)
-    print(f"done: {args.output}")
+    print(f"完成: {args.output}")
 
 
 if __name__ == "__main__":

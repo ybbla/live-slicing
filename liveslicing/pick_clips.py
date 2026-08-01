@@ -1,14 +1,15 @@
-"""Select highlight clips from a packed transcript via Doubao (火山方舟 Ark).
+"""豆包选段模块：通过火山方舟Ark调用豆包大模型，从打包后的转录文本中选择高光切片。
 
-读 <edit>/takes_packed.md，调豆包 LLM 选出高吸引力片段，吸附到短语边界
-（保证不句中切断），输出多片段 EDL <edit>/clips/edl_multi.json 给 render_clips 消费。
+核心功能：读取<edit>/takes_packed.md打包后的短语级转录文本，调用豆包LLM选出高吸引力片段，
+自动将切点±0.5s吸附到短语边界保证不切断句子，支持多段不连续片段拼接为同一条逻辑连贯的切片，
+最终输出多片段EDL文件<edit>/clips/edl_multi.json供渲染模块消费。
 
-Ark 是 OpenAI 兼容接口；ARK_MODEL 留空时首运行自动调 models.list() 探测。
+Ark接口兼容OpenAI SDK，ARK_MODEL留空时首次运行自动调用models.list()探测最合适的模型（优先大上下文豆包pro/1.5版本）。
+支持自动条数模式（count=0/None）：豆包根据视频内容密度自主判断合理切片条数，参考标准为每小时5-8条。
 
-支持 auto count 模式（count=None/0）：豆包根据内容密度自定条数。
-
-用法（一般由 cli.py 调用，也可直接跑）：
-    python -m liveslicing.pick_clips <video> --edit-dir ./edit --count 6
+使用示例（通常由cli.py调用，也可直接运行）：
+    python -m liveslicing.pick_clips 直播.mp4 --edit-dir ./edit --count 6
+    python -m liveslicing.pick_clips 直播.mp4  # 自动条数模式
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -102,12 +104,20 @@ def snap_to_phrases(start: float, end: float, phrases: list[dict]) -> tuple[floa
 
 
 def _probe_video_duration(video: Path) -> float:
-    """Get source video duration via ffprobe (for auto-count prompt)."""
+    """通过ffprobe获取源视频总时长，供自动条数模式判断切片数量参考。
+
+    Args:
+        video: 视频文件路径
+
+    Returns:
+        时长秒数，探测失败返回0.0
+    """
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(video)],
             capture_output=True, text=True, check=True,
+            encoding="utf-8", errors="replace",
         )
         return float(out.stdout.strip() or 0.0)
     except Exception:
@@ -174,7 +184,7 @@ SYSTEM_PROMPT_AUTO = """\
 
 参考密度指引：
 - 视频总时长已经告诉你，请据此判断合理条数。一般每小时直播约 5-8 条，金句密集/干货多可多切，内容平淡可少切。
-- 总数不少于 3 条、不多于 MAX_CLIPS 条（超过 2 小时的长视频可放宽到 16 条）。
+- 总数不少于 MIN_CLIPS 条、不多于 MAX_CLIPS 条（超过 2 小时的长视频可放宽到 16 条）。
 - 不要为凑数切水货片段；素材不足就少切，但每条都必须是真正的高光。
 - 不要把同一论点拆成多条。
 
@@ -210,18 +220,40 @@ def build_user_prompt_fixed(packed_md: str, count: int, min_dur: float, max_dur:
     )
 
 
-def build_user_prompt_auto(packed_md: str, video_dur_s: float, min_dur: float, max_dur: float) -> str:
+def build_user_prompt_auto(packed_md: str, video_dur_s: float, min_dur: float, max_dur: float) -> tuple[str, int, int]:
+    """生成自动模式用户提示词，同时返回动态计算的min_clips/max_clips供系统提示词替换使用。"""
     dur_hint = _fmt_dur(video_dur_s)
+    # 动态计算条数上下限
     max_clips = 16 if video_dur_s >= 7200 else 12
-    return (
+    if video_dur_s < 600:  # <10分钟短视频，最少1条
+        min_clips = 1
+    elif video_dur_s < 1800:  # 10~30分钟中视频，最少2条
+        min_clips = 2
+    else:  # ≥30分钟长直播，最少3条
+        min_clips = 3
+    prompt = (
         f"视频总时长约 {dur_hint}。请自主判断合理条数（参考：每小时 5-8 条，"
-        f"不少于 3 条，不多于 {max_clips} 条），每条切片总时长 {min_dur:.0f}-{max_dur:.0f} 秒。\n\n"
+        f"不少于 {min_clips} 条，不多于 {max_clips} 条），每条切片总时长 {min_dur:.0f}-{max_dur:.0f} 秒。\n\n"
         f"以下是直播台词（时间戳为秒）：\n\n{packed_md}"
     )
+    return prompt, min_clips, max_clips
 
 
 def safe_json_loads(text: str) -> dict:
-    """豆包可能偶尔带围栏或多余文字，容错解析。"""
+    """容错解析豆包返回的JSON，兼容模型偶尔输出markdown围栏或多余文字的情况。
+
+    处理逻辑：
+    1. 去除首尾空白
+    2. 移除开头和结尾可能存在的```json/```markdown围栏
+    3. 正则匹配第一个完整JSON对象解析
+    4. 解析失败抛出JSONDecodeError，上层触发重试
+
+    Args:
+        text: 豆包返回的原始文本
+
+    Returns:
+        解析后的JSON字典
+    """
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
@@ -240,7 +272,21 @@ def call_doubao_fixed(
     min_dur: float,
     max_dur: float,
 ) -> list[dict]:
-    """固定条数模式。返回 clips 列表。"""
+    """固定条数模式调用豆包选段，返回clips列表。
+
+    JSON解析失败时自动重试一次，提示模型只输出纯JSON，降低temperature。
+
+    Args:
+        client: OpenAI兼容的Ark客户端
+        model: 使用的模型ID
+        packed_md: 打包后的markdown转录文本
+        count: 目标切片条数
+        min_dur: 单条最短时长（秒）
+        max_dur: 单条最长时长（秒）
+
+    Returns:
+        选段结果列表，每个元素包含segments分段、title标题、reason选段理由
+    """
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -248,7 +294,7 @@ def call_doubao_fixed(
             {"role": "user", "content": build_user_prompt_fixed(packed_md, count, min_dur, max_dur)},
         ],
         response_format={"type": "json_object"},
-        temperature=0.4,
+        temperature=0.3,
     )
     content = resp.choices[0].message.content or ""
     try:
@@ -276,17 +322,32 @@ def call_doubao_auto(
     min_dur: float,
     max_dur: float,
 ) -> list[dict]:
-    """Auto count 模式：豆包根据内容密度自定条数。"""
-    max_clips = 16 if video_dur_s >= 7200 else 12
-    sys_prompt = SYSTEM_PROMPT_AUTO.replace("MAX_CLIPS", str(max_clips))
+    """自动条数模式调用豆包选段，豆包根据内容密度自主判断合理条数。
+
+    参考密度：每小时直播约5-8条，不少于3条，2小时以上长视频最多16条，不凑水货片段。
+    JSON解析失败时自动重试一次。
+
+    Args:
+        client: OpenAI兼容的Ark客户端
+        model: 使用的模型ID
+        packed_md: 打包后的markdown转录文本
+        video_dur_s: 视频总时长（秒）
+        min_dur: 单条最短时长（秒）
+        max_dur: 单条最长时长（秒）
+
+    Returns:
+        选段结果列表，每个元素包含segments分段、title标题、reason选段理由
+    """
+    user_prompt, min_clips, max_clips = build_user_prompt_auto(packed_md, video_dur_s, min_dur, max_dur)
+    sys_prompt = SYSTEM_PROMPT_AUTO.replace("MAX_CLIPS", str(max_clips)).replace("MIN_CLIPS", str(min_clips))
     resp = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": build_user_prompt_auto(packed_md, video_dur_s, min_dur, max_dur)},
+            {"role": "user", "content": user_prompt},
         ],
         response_format={"type": "json_object"},
-        temperature=0.4,
+        temperature=0.3,
     )
     content = resp.choices[0].message.content or ""
     try:
@@ -296,7 +357,7 @@ def call_doubao_auto(
             model=model,
             messages=[
                 {"role": "system", "content": sys_prompt + "\n务必只输出纯 JSON。"},
-                {"role": "user", "content": build_user_prompt_auto(packed_md, video_dur_s, min_dur, max_dur)},
+                {"role": "user", "content": user_prompt},
                 {"role": "assistant", "content": content},
                 {"role": "user", "content": "上面不是合法 JSON，请只输出 JSON 对象。"},
             ],
@@ -309,28 +370,31 @@ def call_doubao_auto(
 # ────────────────── 自评（vision 切点质检） ──────────────────
 
 EVAL_PROMPT_CUT = (
-    "这是一段已渲染视频在某个切点附近(±1.5秒)的胶片条+波形图合成。"
-    "请判断切点处是否存在问题："
-    "1) 画面跳变/闪烁/突兀切换；"
-    "2) 波形出现尖峰(可能是爆音,30ms淡变未消住)；"
-    "3) 字幕被遮挡或错位。"
-    "只输出JSON: {\"ok\": true/false, \"issues\": [\"问题描述\"]}，无问题则 issues 为空数组。"
+    "这是一段已渲染视频在某个切点附近(±1.5秒)的胶片条+波形图合成，**胶片条正中间就是切点位置**。"
+    "请按以下严重级别判断问题，轻微/不明显的问题、自然停顿留白绝对不要报错：\n"
+    "🔴 critical（严重，必须修）：切点画面明显跳变/闪烁/硬切突兀（正常画面切换/内容停顿不算）；"
+    "削波爆音（波形顶部被截断成平的才叫爆音，正常说话尖峰/掌声笑声/停顿留白都是正常的）；"
+    "切点处超过0.3秒完全没声音（切到空白/音频断流）；字幕严重遮挡或错位不可读。\n"
+    "🟡 warning（警告，该看看）：切点处衔接轻微不连贯但不影响观看；"
+    "切点前后音频有轻微啵声但不明显；字幕略偏但不影响阅读。\n"
+    "🟢 info（提示，可优化）：切点附近有较长自然停顿留白可考虑收紧；padding略保守可优化。\n"
+    "每个issue标注是否可以通过调整渲染参数自动修复（fixable: true=调padding/fade/切点偏移就能修，false=需要改切点逻辑/字幕逻辑等渲染参数调不了的事）。"
+    "只输出JSON: {\"ok\": true/false, \"issues\": [{\"level\": \"critical\"|\"warning\"|\"info\", \"desc\": \"问题描述\", \"fixable\": true/false}]}，"
+    "无明显问题时 ok 为 true, issues 为空数组。"
 )
 
 EVAL_PROMPT_SAMPLE = (
-    "这是一段已渲染视频的片段胶片条+波形图合成。"
-    "请判断是否存在质量问题："
-    "1) 开头/结尾黑场、花屏、画面异常；"
-    "2) 波形出现尖峰(爆音)或完全静音(音频丢失)；"
-    "3) 字幕被遮挡、错位或不可读；"
-    "4) 明显调色异常(过曝/过暗/偏色严重)。"
-    "如果有问题，同时给出修复建议，调整切点前后的padding和音频淡入淡出时长："
-    "- pad_before: 切点前缓冲时间(秒)，默认0.05"
-    "- pad_after: 切点后缓冲时间(秒)，默认0.08"
-    "- fade_duration: 音频淡入淡出时长(秒)，默认0.03"
-    "- 切点偏移：对问题切点的起止时间做±0.2s以内的微调，避开跳变帧/爆音点"
-    "只输出JSON: {\"ok\": true/false, \"issues\": [\"问题描述\"], \"adjustments\": {\"pad_before\": float, \"pad_after\": float, \"fade_duration\": float, \"segment_offsets\": [ {\"index\": int, \"start_offset\": float, \"end_offset\": float} ] }}，无问题则 adjustments 为null。"
-    "注意：pad_before/pad_after最大不要超过0.2，fade_duration最大不要超过0.08，偏移量在-0.2到+0.2之间。"
+    "这是一段已渲染视频的普通片段胶片条+波形图合成（不是切点位置，不需要判断切点跳变问题）。"
+    "请按以下严重级别判断问题，轻微/不明显的问题、内容表达需要的自然停顿绝对不要报错：\n"
+    "🔴 critical（严重，必须修）：明显黑场/花屏/画面损坏；削波爆音（波形顶部截断成平的）；"
+    "开头1秒完全没声音（音频缺失/空白开头）；结尾声音突然截断；字幕严重遮挡/错位不可读；明显调色异常（全白过曝/全黑过暗/严重偏色）。\n"
+    "🟡 warning（警告，该看看）：轻微调色偏色但不严重；字幕间距略怪但不影响阅读；开头pad偏大导致有短暂静态帧；结尾拖泥带水有1-2秒无关尾音。\n"
+    "🟢 info（提示，可优化）：检测到中间段有较长停顿留白可优化；节奏略慢但内容完整。\n"
+    "每个issue标注是否可以通过调整渲染参数自动修复（fixable: true=调padding/fade/切点偏移就能修，false=只能改切点逻辑或字幕逻辑才能修）。"
+    "如果有fixable为true的问题，同时给出修复参数：pad_before(秒)/pad_after(秒)/fade_duration(秒)/segment_offsets(对问题片段起止时间做±0.2s微调)。"
+    "只输出JSON: {\"ok\": true/false, \"issues\": [{\"level\": \"critical\"|\"warning\"|\"info\", \"desc\": \"...\", \"fixable\": true/false}], \"adjustments\": {\"pad_before\": float, \"pad_after\": float, \"fade_duration\": float, \"segment_offsets\": [...]}}，"
+    "无明显问题时 ok 为 true, issues 为空数组, adjustments 为 null。"
+    "pad_before/pad_after最大不超过0.2，fade_duration最大不超过0.08，切点偏移在±0.2之间。不要过度敏感，正常停顿/情绪留白/掌声笑声都是正常的。"
 )
 
 QC_FIX_PROMPT = (
@@ -352,7 +416,9 @@ def self_eval_clip(
     pad_before: float = 0.05, pad_after: float = 0.08, fade_duration: float = 0.03,
 ) -> str | dict | None:
     """对渲染好的 clip 做 vision 质检，或给出QC修复参数建议。
-    - 正常模式：返回问题描述字符串或 None
+    - 正常模式：返回 None（无问题）或 JSON 字符串（有问题），格式为：
+      {"level": "critical"|"warning"|"info", "issues": ["..."], "fixable": true|false}
+      取所有issue的最高严重级别，fixable表示是否存在可自修复的问题
     - get_adjustments模式：返回参数字典 {"pad_before": float, ...} 用于重渲染
     """
     # If get_adjustments is True, call LLM to get fix suggestions
@@ -372,18 +438,39 @@ def self_eval_clip(
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.1, max_tokens=300,
+                timeout=30.0,
             )
-            import json as json_mod
-            data = json_mod.loads(resp.choices[0].message.content or "{}")
+            content = resp.choices[0].message.content or "{}"
+            # 清理可能的markdown包裹、转义引号问题
+            content = content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+            data = safe_json_loads(content) or {}
             if not data.get("ok", True):
-                return None  # Can't auto-fix
+                return None  # 无法自动修复
             adj = data.get("adjustments") or {}
-            # Validate and clamp parameters
+            # 校验并 clamp 参数到安全范围
             result = {
                 "pad_before": max(0.02, min(0.2, float(adj.get("pad_before", pad_before)))),
                 "pad_after": max(0.02, min(0.2, float(adj.get("pad_after", pad_after)))),
                 "fade_duration": max(0.01, min(0.1, float(adj.get("fade_duration", fade_duration)))),
+                "segment_offsets": adj.get("segment_offsets") or [],
             }
+            # 校验segment_offsets格式
+            valid_offsets = []
+            for off in result["segment_offsets"]:
+                try:
+                    idx = int(off.get("index", 0))
+                    s_off = max(-0.2, min(0.2, float(off.get("start_offset", 0.0))))
+                    e_off = max(-0.2, min(0.2, float(off.get("end_offset", 0.0))))
+                    if 0 <= idx < seg_count:
+                        valid_offsets.append({"index": idx, "start_offset": s_off, "end_offset": e_off})
+                except (TypeError, ValueError, KeyError):
+                    continue
+            result["segment_offsets"] = valid_offsets if valid_offsets else None
             return result
         except Exception as e:
             print(f"        生成QC修复建议失败: {e!r}")
@@ -401,7 +488,7 @@ def self_eval_clip(
     clip_dur = _probe_clip_duration(clip_path)
     verify_dir = Path(clip_path).parent / "verify"
     verify_dir.mkdir(parents=True, exist_ok=True)
-    issues: list[str] = []
+    all_issues: list[dict] = []  # 结构化问题列表 [{level, desc, fixable}, ...]
 
     check_windows: list[tuple[float, float, str, str]] = []
     if len(segments) > 1:
@@ -445,25 +532,68 @@ def self_eval_clip(
                     print(f"        timeline_view {label} 失败，跳过: {e!r}")
         if not timeline_ok:
             continue
-        # Retry vision API call up to 2 times on failure
+        # Retry vision API call up to 2 times on failure，增加重试间隔避免限流
         verdict = None
         for retry in range(3):
             verdict = _vision_judge(client, png, prompt=prompt)
             if verdict is not None:
                 break
             if retry < 2:
-                print(f"        vision 判定 {label} 失败，重试 {retry+1}/2")
+                wait_s = (retry + 1) * 2  # 递增等待：2s、4s
+                print(f"        vision 判定 {label} 失败，{wait_s}秒后重试 {retry+1}/2")
+                time.sleep(wait_s)
         if verdict and not verdict.get("ok", True):
-            issues.extend(verdict.get("issues", []))
+            raw_issues = verdict.get("issues", [])
+            for ri in raw_issues:
+                # 兼容旧版纯字符串格式和新版结构化格式
+                if isinstance(ri, str):
+                    all_issues.append({"level": "critical", "desc": ri, "fixable": False})
+                elif isinstance(ri, dict):
+                    all_issues.append({
+                        "level": ri.get("level", "critical"),
+                        "desc": ri.get("desc", str(ri)),
+                        "fixable": bool(ri.get("fixable", False)),
+                    })
 
-    if not issues:
+    if not all_issues:
         return None
-    return "；".join(issues)[:300]
+
+    # 取所有issue的最高严重级别
+    level_order = {"critical": 3, "warning": 2, "info": 1}
+    max_level = "info"
+    for iss in all_issues:
+        if level_order.get(iss["level"], 0) > level_order.get(max_level, 0):
+            max_level = iss["level"]
+
+    # 是否存在可自动修复的严重问题
+    has_fixable = any(
+        iss["level"] == "critical" and iss["fixable"]
+        for iss in all_issues
+    )
+
+    descs = [iss["desc"] for iss in all_issues]
+    result = {
+        "level": max_level,
+        "issues": descs,
+        "fixable": has_fixable,
+    }
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _vision_judge(client: OpenAI, png: Path, prompt: str = EVAL_PROMPT_CUT) -> dict | None:
+    """调用豆包视觉模型判断视频帧质量，带超时控制和异常处理。
+
+    Args:
+        client: OpenAI兼容的Ark客户端实例
+        png: 待检测的PNG关键帧路径
+        prompt: 视觉判断提示词
+
+    Returns:
+        解析后的判断结果字典，失败返回None
+    """
     try:
         b64 = base64.b64encode(png.read_bytes()).decode()
+        # 增加30秒超时，避免接口无响应导致任务卡住
         resp = client.chat.completions.create(
             model=VISION_MODEL,
             messages=[{"role": "user", "content": [
@@ -473,8 +603,13 @@ def _vision_judge(client: OpenAI, png: Path, prompt: str = EVAL_PROMPT_CUT) -> d
             ]}],
             response_format={"type": "json_object"},
             temperature=0.1, max_tokens=200,
+            timeout=180.0,
         )
-        return safe_json_loads(resp.choices[0].message.content or "")
+        content = resp.choices[0].message.content or ""
+        if not content.strip():
+            print(f"        vision 返回空响应")
+            return None
+        return safe_json_loads(content)
     except Exception as e:
         print(f"        vision 判失败: {e!r}")
         return None
@@ -486,6 +621,7 @@ def _probe_clip_duration(clip_path: Path) -> float:
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(clip_path)],
             capture_output=True, text=True, check=True,
+            encoding="utf-8", errors="replace",
         )
         return float(out.stdout.strip() or 0.0)
     except Exception:
@@ -585,11 +721,22 @@ def select_clips(
     max_duration: float = 300.0,
     chunk_minutes: int = 0,
     on_progress=None,
+    clips_dir: Path | None = None,
 ) -> Path:
-    """主入口：读 packed.md → 豆包选段 → 写 edl_multi.json。返回 EDL 路径。
+    """选段主入口：读取打包转录文本 → 豆包选段 → 结果吸附到短语边界 → 输出EDL文件。
 
-    count=0/None：auto 模式，豆包按内容密度自定条数。
-    count>0：固定条数模式。
+    Args:
+        video: 源视频路径
+        edit_dir: 工作目录，包含takes_packed.md
+        count: 目标切片条数，0=自动模式（豆包根据内容密度自定条数，参考每小时5-8条）
+        min_duration: 单条切片最短时长（秒），默认30秒
+        max_duration: 单条切片最长时长（秒），默认300秒（5分钟）
+        chunk_minutes: 超长视频分块阈值（分钟），0=不分块（整份文本一次喂给豆包，支持跨任意位置多段拼接），>0时分块选段（跨块关联会丢失，超长视频降级使用）
+        on_progress: 进度回调函数，签名为(stage: str, percent: int, message: str)
+        clips_dir: EDL输出目录，默认None则自动使用edit_dir/clips，传入时直接写入指定目录（通常是带时间戳的最终结果目录）
+
+    Returns:
+        输出的EDL JSON文件路径
     """
     def _p(stage: str, pct: int, msg: str):
         print(msg, flush=True)
@@ -655,7 +802,9 @@ def select_clips(
         print(f"  {i+1}. {segs_str}  ({dur:5.1f}s)  {c['title']}")
     _p("select", 100, f"  选出 {len(final)} 条切片")
 
-    clips_dir = edit_dir / "clips"
+    # 优先使用传入的输出目录（通常是带时间戳的最终结果目录），否则默认用clips子目录
+    if clips_dir is None:
+        clips_dir = edit_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
     edl = {
         "version": 3,

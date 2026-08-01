@@ -51,18 +51,22 @@ live-slicing/
 ├── liveslicing/                 # Python 包（核心代码）
 │   ├── __init__.py
 │   ├── config.py                # 统一 .env 加载（volc_app_key, ark_config）
-│   ├── cli.py                   # 流水线编排（run() 含 on_progress 回调）
-│   ├── transcribe.py            # 火山 ASR 适配（60min 分段）
+│   ├── cli.py                   # 流水线编排（run() 含 on_progress 回调，CLI/Web共用）
+│   ├── transcribe.py            # 火山 ASR 云服务适配（默认，60min 分段）
+│   ├── transcribe_qwen3.py      # Qwen3-ASR 本地开源模型适配（备用方案，无长度限制）
 │   ├── transcribe_batch.py      # 批量并行转录（4 worker）
 │   ├── pack_transcripts.py      # 打包 takes_packed.md
 │   ├── pick_clips.py            # 豆包选段（支持 auto count）+ vision 自评
 │   ├── render.py                # 多片段渲染（concat + 字幕 + 响度归一）
-│   ├── grade.py                 # 调色（auto/subtle/warm_cinematic）
+│   ├── grade.py                 # 调色（auto/none/light/warm_cinematic）
 │   └── timeline_view.py         # QC 可视化（胶片条 + 波形，跨平台 CJK 字体）
 ├── web/                         # Flask Web UI
-│   ├── app.py                   # 路由（/api/config, /api/start, /api/status, /clips/*）
+│   ├── app.py                   # 路由（上传/启动/状态/历史/预览/下载/打开目录）
 │   ├── job.py                   # 后台任务管理 + stdout tee + 进度聚合
 │   └── templates/index.html     # 前端（vanilla JS，无构建）
+├── data/                        # 运行时数据（自动创建）
+│   ├── uploads/                 # Web端上传的原视频存储
+│   └── output/                  # 所有切片结果统一输出根目录，按视频名分子目录
 └── scripts/                     # 一次性探针脚本（开发用）
     └── probe_*.py
 ```
@@ -533,4 +537,11 @@ python cli.py 直播.mp4 --from-stage pack
 - **Phase 1.5 质量改造**：①字幕按句一条 + 正常大小写——根因是火山 `words[].text` 是单字无标点而分句标点只在 `utterance.text`，旧 `build_master_srt` 按 2 词硬切块 + `.upper()` 致中文每块仅 2 字且全大写、视觉断裂；修法是 `normalize_response` 保留 utterances，`build_master_srt` 优先用 utterance 去 upper、长句按词拆保护。②一条切片内拼多段——EDL 改 `clips[].segments[]` 分组，prompt 引导拼接，`render_clips` 按 clip 走 sub-EDL 拼接流程（复用原 `render.main` 多 range 拼一条的完整流程，`seg_offset` 累加现成可用）。
 - **Phase 1.6 质量增强**：①切点 padding（Hard Rule 7，50/80ms 吸收 ASR 漂移，与 Hard Rule 3 的 30ms 淡变防 click 是不同机制）；②cut-craft prompt 增强（静音 ≥400ms/150–400ms/<150ms 分级、音频事件 beat 信号、多段拼接同说话人）；③vision 自评闭环（内部切点 ±1.5s 出 timeline_view PNG → vision 判跳变/爆音/字幕遮挡 → manifest.qc_flag）。
 - **Phase 1.7 ASR 分段上调（实测驱动）**：递增时长探针实测极速版 flash 单请求真实上限——56min/102.5MB wav（POST base64 ~140MB）稳过、2h/219.7MB（POST ~301MB）撞 HTTP 413 网关 payload 墙（非 ASR 业务拒，`X-Api-Status-Code` 为空）。修正文档「≤100MB」是软建议（102.5MB 照样过）而非硬红线、真实文件硬墙在 POST 140~301MB 间。据此将 `DEFAULT_MAX_CHUNK_MINUTES` 从 10 调到 60（POST~150MB 离 413 阈值有余量），删掉 `transcribe_one` 里 `min(max_chunk_minutes, 10)` 的旧 10 分钟硬保护，cli 调用去掉 `max_chunk_minutes=10` 硬编码。1h 直播单段、2h 仅 2 段，段数大减顺带根除「说话人跨段 ID 不一致」问题（单段无跨段）。评估过改用标准版异步（≤5h）但否决：标准版内置语义顺滑可能改写 verbatim 转录、与 cut-craft（Hard Rule 8 禁 normalize fillers）冲突，且需写 submit+query+TOS 适配器，对 ≤2h 素材零收益。探针脚本 `probe_flash_limit.py`/`probe_flash_2h.py` 保留作回归工具。
-- **后续规划**：Phase 2 目录批量、超长流分块+重叠合并、句级时 forced-align 补词边界、TOS 上传路径、人工审 HTML；更后期 Web UI。
+- **Phase 1.8 产品化增强**：
+  1. **双ASR引擎支持**：新增`transcribe_qwen3.py`模块，接入Qwen3-ASR开源本地模型，接口与火山版完全一致可无缝替换，支持离线转录、无长度限制、方言/BGM场景、隐私安全，满足不同用户需求。
+  2. **统一输出目录与历史版本管理**：CLI和Web UI统一输出到`data/output/<视频名>/`，结果使用`clips_YYYYMMDD_HHMMSS/`时间戳目录存储，通过Windows目录联接（或Linux/macOS软链接）`clips`永久指向最新版本，所有历史重剪结果自动保留不覆盖。
+  3. **重剪功能**：manifest新增`config`字段保存完整任务参数，支持历史任务一键重剪，自动加载原视频和参数，复用转录/打包缓存，15分钟视频重剪仅需1-2分钟出结果。
+  4. **跨任务缓存复用**：新任务自动扫描同视频其他任务目录，复制已有的转录和打包结果，避免重复转录浪费时间和API费用。
+  5. **参数统一与调色扩展**：CLI参数`--count`统一为`--num-clips`与Web端保持一致；调色预设新增`light`轻度增强模式，满足不同风格需求。
+  6. **Web UI功能完善**：新增历史任务列表、删除任务、获取历史配置、打开目录等接口，路径遍历安全防护，支持所有ffmpeg可解码的常见视频格式。
+- **后续规划**：Phase 2 目录批量处理、超长流分块+重叠合并、本地ASR说话人分离（接入pyannote.audio）、敏感内容屏蔽、人工审核HTML界面。

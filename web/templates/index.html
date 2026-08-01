@@ -54,9 +54,30 @@
     width: 100%; padding: 10px 12px; border: 1px solid var(--border);
     border-radius: 8px; background: #fff; font-size: 14px;
   }
-  .checkbox-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
-  .checkbox-row input { width: 18px; height: 18px; }
-  .checkbox-row label { margin: 0; font-weight: normal; font-size: 14px; color: var(--muted); }
+  .checkbox-row { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; }
+  .checkbox-row input { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; }
+  .checkbox-row label { margin: 0; font-weight: normal; font-size: 14px; color: var(--muted); line-height: 1.4; }
+
+  .form-row { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+  .form-row label { min-width: 80px; font-size: 14px; color: var(--text); font-weight: 500; }
+  .form-select { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: #fff; color: var(--text); }
+  .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(79,70,229,0.1); }
+
+  /* 高级选项折叠面板 */
+  .advanced-panel { margin: 16px 0; border: 1px solid var(--border); border-radius: 8px; background: #f9fafb; }
+  .advanced-panel summary { padding: 10px 14px; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--muted); list-style: none; user-select: none; }
+  .advanced-panel summary::-webkit-details-marker { display: none; }
+  .advanced-panel summary::before { content: "▶"; display: inline-block; margin-right: 8px; transition: transform 0.2s; font-size: 10px; }
+  .advanced-panel[open] summary::before { transform: rotate(90deg); }
+  .advanced-content { padding: 0 14px 14px 14px; border-top: 1px solid var(--border); }
+
+  /* 双滑块时长选择 */
+  .range-group { flex: 1; display: flex; align-items: center; gap: 10px; }
+  .range-group span { font-size: 13px; color: var(--muted); min-width: 42px; text-align: center; }
+  .range-slider { flex: 1; position: relative; height: 24px; }
+  .range-slider input[type="range"] { position: absolute; width: 100%; top: 50%; transform: translateY(-50%); pointer-events: none; appearance: none; height: 4px; background: #e5e7eb; border-radius: 2px; outline: none; }
+  .range-slider input[type="range"]::-webkit-slider-thumb { pointer-events: all; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+  .range-slider input[type="range"]::-moz-range-thumb { pointer-events: all; width: 18px; height: 18px; border-radius: 50%; background: var(--primary); cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 
   button {
     background: var(--primary); color: #fff; border: none;
@@ -156,6 +177,112 @@
   .history-clip:last-child { border-bottom: none; }
   .history-clip-title { font-size: 14px; }
   .history-clip-meta { font-size: 12px; color: var(--muted); }
+
+  /* Version history */
+  .version-badge {
+    display: inline-block; background: #eff6ff; color: #2563eb;
+    font-size: 12px; padding: 2px 8px; border-radius: 10px;
+    font-weight: 500; margin-left: 8px; cursor: pointer;
+  }
+  .version-badge:hover { background: #dbeafe; }
+  .version-list { margin-top: 12px; border-left: 2px solid #e5e7eb; padding-left: 12px; margin-left: 4px; }
+  .version-item {
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    margin-bottom: 8px; background: #fafafa; transition: background 0.15s;
+  }
+  .version-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; cursor: pointer; user-select: none; }
+  .version-item:hover { background: #f3f4f6; }
+  .toggle-icon { display: inline-block; transition: transform 0.2s; font-size: 10px; margin-right: 6px; }
+  .toggle-icon.open { transform: rotate(90deg); }
+  .version-clips { margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
+  .version-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; user-select: none; padding: 4px 0; }
+  .version-title { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .version-meta { font-size: 12px; color: var(--muted); }
+  .version-actions { margin-top: 6px; gap: 6px; display: flex; flex-wrap: wrap; }
+  .version-clips { margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
+  .toggle-icon { display: inline-block; transition: transform 0.2s; font-size: 10px; }
+  .toggle-icon.open { transform: rotate(90deg); }
+
+  /* Mode selector */
+  .mode-selector { display: flex; gap: 10px; margin: 12px 0; }
+  .mode-option {
+    flex: 1; border: 2px solid var(--border); border-radius: 10px; padding: 12px;
+    cursor: pointer; transition: all 0.15s; background: #fff;
+  }
+  .mode-option:hover { border-color: #93c5fd; background: #eff6ff; }
+  .mode-option.selected { border-color: var(--primary); background: #eff6ff; }
+  .mode-option input { display: none; }
+  .mode-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .mode-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .mode-recommend { display: inline-block; background: #dcfce7; color: #166534; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; font-weight: 500; }
+
+  /* Proposition cards */
+  .prop-toolbar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    margin: 12px 0; padding: 12px; background: #f9fafb; border-radius: 8px;
+    font-size: 13px;
+  }
+  .prop-toolbar label { display: flex; align-items: center; gap: 6px; font-weight: normal; margin: 0; }
+  .prop-toolbar input[type="range"] { width: 120px; }
+  .prop-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cat-chip {
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;
+    background: #f3f4f6; color: var(--text); border: 1px solid transparent;
+    transition: all 0.1s; user-select: none;
+  }
+  .cat-chip:hover { background: #e5e7eb; }
+  .cat-chip.active { background: var(--primary); color: #fff; }
+
+  .prop-card {
+    border: 2px solid var(--border); border-radius: 10px; padding: 14px;
+    margin-bottom: 10px; background: #fff; cursor: pointer;
+    transition: all 0.15s; position: relative;
+  }
+  .prop-card:hover { border-color: #93c5fd; background: #fafcff; }
+  .prop-card.selected { border-color: var(--primary); background: #eff6ff; }
+  .prop-card input[type="checkbox"] {
+    position: absolute; top: 14px; left: 14px; width: 20px; height: 20px;
+    cursor: pointer; accent-color: var(--primary);
+  }
+  .prop-body { margin-left: 32px; }
+  .prop-header {
+    display: flex; justify-content: space-between; align-items: start;
+    flex-wrap: wrap; gap: 8px; margin-bottom: 6px;
+  }
+  .prop-title { font-weight: 600; font-size: 15px; line-height: 1.4; }
+  .prop-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+  .cat-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 500;
+  }
+  .cat-金句 { background: #fef3c7; color: #92400e; }
+  .cat-冲突 { background: #fee2e2; color: #991b1b; }
+  .cat-干货 { background: #dbeafe; color: #1e40af; }
+  .cat-故事 { background: #e9d5ff; color: #6b21a8; }
+  .cat-反转 { background: #fce7f3; color: #9d174d; }
+  .cat-趣味 { background: #d1fae5; color: #065f46; }
+  .cat-回应 { background: #fed7aa; color: #9a3412; }
+  .cat-其他 { background: #f3f4f6; color: #4b5563; }
+  .prop-score { color: #f59e0b; letter-spacing: 1px; }
+  .prop-summary { font-size: 13px; color: #4b5563; margin: 4px 0 8px; line-height: 1.5; }
+  .prop-preview {
+    background: #f9fafb; border-left: 3px solid #3b82f6; padding: 8px 12px;
+    border-radius: 0 6px 6px 0; font-size: 13px; color: #374151;
+    line-height: 1.6; max-height: 4.8em; overflow: hidden;
+    position: relative; font-style: italic;
+  }
+  .prop-time { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .stages-5 { grid-template-columns: repeat(5, 1fr); }
+  .stages-6 { grid-template-columns: repeat(6, 1fr); }
+  .stage .stage-icon { font-size: 20px; margin-bottom: 4px; }
+  .stage.waiting { background: #fffbeb; border-color: #fcd34d; animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  .selected-count { font-weight: 700; color: #ffffff; }
 </style>
 </head>
 <body>
@@ -171,9 +298,9 @@
     <h2>上传视频</h2>
 
     <div class="drop-area" id="drop-area">
-      <input type="file" id="file-input" accept=".mp4,video/mp4" hidden>
+      <input type="file" id="file-input" accept=".mp4,.mov,.mkv,.flv,.ts,.avi,.m4v,.webm,video/*" hidden>
       <div class="drop-icon">📤</div>
-      <div class="drop-text">拖拽 .mp4 文件到此处，或点击选择文件</div>
+      <div class="drop-text">拖拽视频文件到此处，或点击选择文件（支持mp4/mov/mkv/flv/ts/avi等常见格式）</div>
     </div>
 
     <div class="selected-video hidden" id="selected-video"></div>
@@ -182,10 +309,68 @@
       <div class="status" id="upload-status">准备上传...</div>
     </div>
 
+    <div class="mode-selector">
+      <label class="mode-option selected" data-mode="propose">
+        <input type="radio" name="mode" value="propose" checked>
+        <div class="mode-title">🔍 AI 提取看点，我来选择 <span class="mode-recommend">推荐</span></div>
+        <div class="mode-desc">AI先找出所有精彩命题，你勾选想要的再生成，条数和质量更可控</div>
+      </label>
+      <label class="mode-option" data-mode="auto">
+        <input type="radio" name="mode" value="auto">
+        <div class="mode-title">⚡ 全自动直接出片</div>
+        <div class="mode-desc">AI全程自动选段直接生成，适合快速出片</div>
+      </label>
+    </div>
+
+    <div class="form-row" id="num-clips-row">
+      <label for="num-clips-select">切片数量：</label>
+      <select id="num-clips-select" class="form-select">
+        <option value="0" selected>🤖 智能推荐（豆包自动决定）</option>
+        <option value="1">1条</option>
+        <option value="2">2条</option>
+        <option value="3">3条</option>
+        <option value="5">5条</option>
+        <option value="8">8条</option>
+        <option value="10">10条</option>
+      </select>
+    </div>
+
     <div class="checkbox-row">
       <input type="checkbox" id="subtitles-cb">
       <label for="subtitles-cb">烧录字幕到视频画面（默认不勾，会生成独立 .srt 字幕文件）</label>
     </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="preview-cb">
+      <label for="preview-cb">⚡ 快速预览模式（渲染快3-5倍，画质压缩、跳过质检，仅用于查看选段效果）</label>
+    </div>
+
+    <details class="advanced-panel">
+      <summary>⚙️ 高级选项</summary>
+      <div class="advanced-content">
+        <div class="form-row">
+          <label for="grade-select">调色风格：</label>
+          <select id="grade-select" class="form-select">
+            <option value="auto" selected>✨ 智能自然微调（推荐，无痕迹）</option>
+            <option value="none">🎨 原色调无修改</option>
+            <option value="light">💡 轻度画质增强</option>
+            <option value="warm_cinematic">🎬 暖调电影感</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <label>单条时长范围：</label>
+          <div class="range-group">
+            <span id="duration-min-label">30秒</span>
+            <div class="range-slider">
+              <input type="range" id="min-duration" min="10" max="600" value="30" step="1">
+              <input type="range" id="max-duration" min="10" max="600" value="300" step="1">
+            </div>
+            <span id="duration-max-label">5分钟</span>
+          </div>
+        </div>
+      </div>
+    </details>
 
     <button id="start-btn" disabled>🚀 开始切片</button>
   </div>
@@ -194,21 +379,52 @@
   <div class="card hidden" id="progress-card">
     <h2>处理中 <span id="video-label" style="font-weight:normal;color:var(--muted);font-size:14px;"></span></h2>
 
-    <div class="stages">
+    <div class="stages stages-auto hidden">
       <div class="stage" data-stage="transcribe">
-        <div class="stage-name">🎤 转录</div>
+        <div class="stage-icon">🎤</div>
+        <div class="stage-name">转录</div>
         <div class="stage-pct" data-pct>等待</div>
       </div>
       <div class="stage" data-stage="pack">
-        <div class="stage-name">📦 打包</div>
+        <div class="stage-icon">📦</div>
+        <div class="stage-name">打包</div>
         <div class="stage-pct" data-pct>等待</div>
       </div>
       <div class="stage" data-stage="select">
-        <div class="stage-name">🤖 豆包选段</div>
+        <div class="stage-icon">🤖</div>
+        <div class="stage-name">豆包选段</div>
         <div class="stage-pct" data-pct>等待</div>
       </div>
       <div class="stage" data-stage="render">
-        <div class="stage-name">🎞️ 渲染</div>
+        <div class="stage-icon">🎞️</div>
+        <div class="stage-name">渲染</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+    </div>
+    <div class="stages stages-propose stages-5">
+      <div class="stage" data-stage="transcribe">
+        <div class="stage-icon">🎤</div>
+        <div class="stage-name">转录</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="pack">
+        <div class="stage-icon">📦</div>
+        <div class="stage-name">打包</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="propose">
+        <div class="stage-icon">🔍</div>
+        <div class="stage-name">提取看点</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="refine">
+        <div class="stage-icon">✂️</div>
+        <div class="stage-name">精修切点</div>
+        <div class="stage-pct" data-pct>等待</div>
+      </div>
+      <div class="stage" data-stage="render">
+        <div class="stage-icon">🎞️</div>
+        <div class="stage-name">渲染</div>
         <div class="stage-pct" data-pct>等待</div>
       </div>
     </div>
@@ -226,16 +442,61 @@
   <div class="card hidden" id="error-card">
     <h2>❌ 出错了</h2>
     <div class="alert alert-danger" id="error-msg"></div>
-    <button class="secondary" onclick="location.reload()">重新开始</button>
+    <button class="secondary" id="error-retry-btn">🔄 重新开始</button>
+  </div>
+
+  <!-- Proposition selection card -->
+  <div class="card hidden" id="propositions-card">
+    <h2>🔍 发现以下精彩看点</h2>
+    <div class="alert alert-ok" id="prop-summary">AI 正在分析视频内容…</div>
+
+    <div class="prop-toolbar">
+      <label>评分筛选：
+        <input type="range" id="score-filter" min="1" max="5" value="1">
+        ≥<span id="score-filter-val">1</span>星
+      </label>
+      <div class="prop-cats" id="cat-filters">
+        <span class="cat-chip active" data-cat="all">全部</span>
+        <span class="cat-chip" data-cat="金句">💡 金句</span>
+        <span class="cat-chip" data-cat="冲突">⚡ 冲突</span>
+        <span class="cat-chip" data-cat="干货">📚 干货</span>
+        <span class="cat-chip" data-cat="故事">📖 故事</span>
+        <span class="cat-chip" data-cat="反转">🔄 反转</span>
+        <span class="cat-chip" data-cat="趣味">😄 趣味</span>
+        <span class="cat-chip" data-cat="回应">💬 回应</span>
+      </div>
+    </div>
+
+    <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button class="secondary" id="select-all-btn">全选</button>
+      <button class="secondary" id="deselect-all-btn">全不选</button>
+      <button class="secondary" id="select-highscore-btn">只选≥4星</button>
+      <button class="secondary" id="refresh-props-btn">🔄 换一批看点</button>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;font-size:13px;">
+        排序：
+        <span class="cat-chip" id="sort-score" data-sort="score">按评分</span>
+        <span class="cat-chip active" id="sort-time" data-sort="time">按时间</span>
+      </span>
+    </div>
+
+    <div id="propositions-list"></div>
+
+    <div style="margin-top:16px;display:flex;gap:12px;align-items:center;">
+      <button id="generate-clips-btn" disabled>✂️ 生成切片（<span id="selected-count" class="selected-count">0</span>条）</button>
+      <span style="color:var(--muted);font-size:13px;" id="select-hint">请至少选择1个看点</span>
+    </div>
   </div>
 
   <!-- Results card -->
   <div class="card hidden" id="results-card">
     <h2>✅ 切片完成</h2>
     <div id="results-summary"></div>
-    <button class="secondary" id="open-folder-btn" style="margin-bottom:16px;">📂 打开输出文件夹</button>
+    <div class="btn-row" style="margin-bottom:16px; gap: 12px; display: flex;">
+      <button class="secondary" id="open-folder-btn">📂 打开输出文件夹</button>
+      <button class="secondary" id="new-video-top">🎬 切下一个视频</button>
+    </div>
     <div id="clips-list"></div>
-    <div style="margin-top:16px;"><button class="secondary" onclick="location.reload()">切另一个视频</button></div>
+    <div style="margin-top:16px;"><button class="secondary" id="new-video-bottom">🎬 切下一个视频</button></div>
   </div>
 
   <!-- History card -->
@@ -252,6 +513,12 @@ const $$ = s => document.querySelectorAll(s);
 let pollTimer = null;
 let currentClipsDir = null;
 let selectedVideo = null; // {path, name, size_mb, duration_str}
+let currentMode = 'propose';
+let allPropositions = [];
+let selectedPropIds = new Set();
+let scoreFilter = 1;
+let catFilter = 'all';
+let propSort = 'score'; // 'score' | 'time'
 
 function fmtDur(s) {
   if (!s || s <= 0) return '';
@@ -329,9 +596,13 @@ fileInput.addEventListener('change', e => {
   if (e.target.files.length) handleFileSelect(e.target.files[0]);
 });
 
+// 支持的视频格式列表，和后端保持一致
+const ALLOWED_VIDEO_EXTS = ['.mp4', '.mov', '.mkv', '.flv', '.ts', '.avi', '.m4v', '.webm'];
+
 function handleFileSelect(file) {
-  if (!file.name.toLowerCase().endsWith('.mp4')) {
-    alert('只支持 .mp4 文件');
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!ALLOWED_VIDEO_EXTS.includes(ext)) {
+    alert(`不支持的视频格式，支持的格式：${ALLOWED_VIDEO_EXTS.join('/')}`);
     return;
   }
   clearSelectedVideo();
@@ -386,10 +657,69 @@ function uploadFile(file) {
   xhr.send(formData);
 }
 
+// --- 时长双滑块交互 ---
+const minDurSlider = $('#min-duration');
+const maxDurSlider = $('#max-duration');
+const minDurLabel = $('#duration-min-label');
+const maxDurLabel = $('#duration-max-label');
+
+function formatDuration(seconds) {
+  seconds = parseInt(seconds);
+  if (seconds < 60) return `${seconds}秒`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s > 0 ? `${m}分${s}秒` : `${m}分钟`;
+}
+
+function updateDurationLabels() {
+  let minVal = parseInt(minDurSlider.value);
+  let maxVal = parseInt(maxDurSlider.value);
+  // 保证最小值不大于最大值，最小间隔1秒
+  if (minVal > maxVal - 1) {
+    if (this === minDurSlider) {
+      minVal = maxVal - 1;
+      minDurSlider.value = minVal;
+    } else {
+      maxVal = minVal + 1;
+      maxDurSlider.value = maxVal;
+    }
+  }
+  minDurLabel.textContent = formatDuration(minVal);
+  maxDurLabel.textContent = formatDuration(maxVal);
+}
+
+minDurSlider.addEventListener('input', updateDurationLabels);
+maxDurSlider.addEventListener('input', updateDurationLabels);
+updateDurationLabels(); // 初始化标签
+
+// --- Mode selector ---
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-option').forEach(opt => {
+    opt.classList.toggle('selected', opt.dataset.mode === mode);
+    const radio = opt.querySelector('input[type="radio"]');
+    if (radio) radio.checked = (opt.dataset.mode === mode);
+  });
+  // 显示/隐藏全自动模式的"切片数量"选项
+  $('#num-clips-row').classList.toggle('hidden', mode !== 'auto');
+  // 显示对应的stage指示器
+  $('.stages-auto').classList.toggle('hidden', mode !== 'auto');
+  $('.stages-propose').classList.toggle('hidden', mode !== 'propose');
+}
+document.querySelectorAll('.mode-option').forEach(opt => {
+  opt.addEventListener('click', () => setMode(opt.dataset.mode));
+});
+setMode('propose'); // 默认命题模式
+
 // --- Start processing ---
 $('#start-btn').addEventListener('click', async () => {
   if (!selectedVideo) { alert('请先选择视频'); return; }
   const subtitles = $('#subtitles-cb').checked;
+  const preview = $('#preview-cb').checked;
+  const numClips = parseInt($('#num-clips-select').value);
+  const grade = $('#grade-select').value;
+  const minDuration = parseInt(minDurSlider.value);
+  const maxDuration = parseInt(maxDurSlider.value);
 
   $('#start-btn').disabled = true;
   $('#drop-area').style.pointerEvents = 'none';
@@ -398,16 +728,33 @@ $('#start-btn').addEventListener('click', async () => {
   $('#progress-card').classList.remove('hidden');
   $('#video-label').textContent = '— ' + selectedVideo.name;
 
+  // 重剪时复用原有输出目录，不新建重复目录
+  const reuseDir = selectedVideo.reuse_dir || null;
   const r = await fetch('/api/start', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({video: selectedVideo.path, subtitles}),
+    body: JSON.stringify({
+      video: selectedVideo.path,
+      subtitles,
+      preview,
+      num_clips: numClips,
+      grade,
+      min_duration: minDuration,
+      max_duration: maxDuration,
+      reuse_dir: reuseDir,
+      mode: currentMode,
+    }),
   });
   const data = await r.json();
   if (!r.ok) {
     showError(data.error || '启动失败');
     return;
   }
+
+  // 重置命题选择状态
+  allPropositions = [];
+  selectedPropIds = new Set();
+  $('#propositions-card').classList.add('hidden');
 
   pollTimer = setInterval(pollStatus, 1000);
   pollStatus();
@@ -421,7 +768,111 @@ function showError(msg) {
 }
 
 function stageLabel(s) {
-  return {transcribe:'🎤 转录', pack:'📦 打包', select:'🤖 豆包选段', render:'🎞️ 渲染', done:'✅ 完成'}[s] || s;
+  const map = {
+    transcribe:'🎤 转录', pack:'📦 打包',
+    select:'🤖 豆包选段', propose:'🔍 提取看点', refine:'✂️ 精修切点',
+    render:'🎞️ 渲染', done:'✅ 完成', waiting_selection:'⏸ 等待选择'
+  };
+  return map[s] || s;
+}
+
+function renderStars(score) {
+  const full = '★'.repeat(Math.min(5, Math.max(1, score)));
+  const empty = '☆'.repeat(5 - Math.min(5, Math.max(1, score)));
+  return full + empty;
+}
+
+function fmtTime(seconds) {
+  if (!seconds || seconds < 0) return '0s';
+  seconds = Math.round(seconds);
+  if (seconds < 60) return seconds + 's';
+  const m = Math.floor(seconds/60), s = seconds%60;
+  if (m < 60) return `${m}m${String(s).padStart(2,'0')}s`;
+  const h = Math.floor(m/60), rm = m%60;
+  return `${h}h${rm}m`;
+}
+
+function renderPropositions() {
+  const container = $('#propositions-list');
+  container.innerHTML = '';
+  let visibleCount = 0;
+  let totalDur = 0;
+
+  // 先排序
+  let sorted = [...allPropositions];
+  if (propSort === 'score') {
+    sorted.sort((a, b) => b.score - a.score || a.start - b.start); // 高分在前，同分按时间
+  } else {
+    sorted.sort((a, b) => a.start - b.start); // 按时间顺序
+  }
+
+  sorted.forEach(p => {
+    // 应用筛选
+    if (p.score < scoreFilter) return;
+    if (catFilter !== 'all' && p.category !== catFilter) return;
+    visibleCount++;
+    if (selectedPropIds.has(p.id)) {
+      totalDur += (p.end - p.start);
+    }
+
+    const card = document.createElement('div');
+    card.className = 'prop-card' + (selectedPropIds.has(p.id) ? ' selected' : '');
+    const dur = (p.end - p.start);
+    const catClass = 'cat-' + p.category;
+    card.innerHTML = `
+      <input type="checkbox" ${selectedPropIds.has(p.id) ? 'checked' : ''} data-prop-id="${p.id}">
+      <div class="prop-body">
+        <div class="prop-header">
+          <div class="prop-title">#${p.id} ${escapeHtml(p.title)}</div>
+          <div class="prop-meta">
+            <span class="cat-tag ${catClass}">${p.category}</span>
+            <span class="prop-score">${renderStars(p.score)}</span>
+            <span>~${fmtTime(dur)}</span>
+          </div>
+        </div>
+        ${p.summary ? `<div class="prop-summary">${escapeHtml(p.summary)}</div>` : ''}
+        ${p.preview ? `<div class="prop-preview">"${escapeHtml(p.preview)}"</div>` : ''}
+        <div class="prop-time">📍 ${fmtTime(p.start)} - ${fmtTime(p.end)}</div>
+      </div>
+    `;
+    // 点击卡片切换选中
+    card.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return; // checkbox自己处理
+      const cb = card.querySelector('input[type="checkbox"]');
+      cb.checked = !cb.checked;
+      cb.dispatchEvent(new Event('change'));
+    });
+    const cb = card.querySelector('input[type="checkbox"]');
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        selectedPropIds.add(p.id);
+        card.classList.add('selected');
+      } else {
+        selectedPropIds.delete(p.id);
+        card.classList.remove('selected');
+      }
+      updatePropSelectionUI();
+    });
+    container.appendChild(card);
+  });
+
+  const total = allPropositions.length;
+  $('#prop-summary').innerHTML = `共发现 <b>${total}</b> 个精彩看点（当前显示 ${visibleCount} 个），请勾选你想要生成切片的内容`;
+}
+
+function updatePropSelectionUI() {
+  const count = selectedPropIds.size;
+  // 计算选中命题总时长
+  let totalDur = 0;
+  allPropositions.forEach(p => {
+    if (selectedPropIds.has(p.id)) totalDur += (p.end - p.start);
+  });
+  const durStr = totalDur > 0 ? `，约 ${fmtDur(Math.round(totalDur))}` : '';
+
+  const countEl = document.getElementById('selected-count');
+  if (countEl) countEl.textContent = count;
+  $('#generate-clips-btn').disabled = (count === 0);
+  $('#select-hint').textContent = count === 0 ? '请至少选择1个看点' : `已选 ${count} 个看点${durStr}`;
 }
 
 async function pollStatus() {
@@ -430,13 +881,30 @@ async function pollStatus() {
     const s = await r.json();
     if (s.status === 'idle') return;
 
+    // 确定stage列表
+    const mode = s.mode || 'propose';
+    const stages = mode === 'auto'
+      ? ['transcribe','pack','select','render']
+      : ['transcribe','pack','propose','refine','render'];
+
     // Update stages
-    const stages = ['transcribe','pack','select','render'];
     for (const st of stages) {
       const el = document.querySelector(`.stage[data-stage="${st}"]`);
+      if (!el) continue;
       const pctEl = el.querySelector('[data-pct]');
-      el.classList.remove('active','done');
-      if (s.current_stage === st && s.status === 'running') {
+      el.classList.remove('active','done','waiting');
+      if (s.status === 'waiting_selection') {
+        // 等待用户选择看点时：提取看点及之前的阶段都已完成，后续阶段等待中
+        const proposeIdx = stages.indexOf('propose');
+        const stIdx = stages.indexOf(st);
+        if (stIdx <= proposeIdx) {
+          el.classList.add('done');
+          pctEl.textContent = '✓';
+        } else {
+          el.classList.add('waiting');
+          pctEl.textContent = '等待';
+        }
+      } else if (s.current_stage === st && s.status === 'running') {
         el.classList.add('active');
         pctEl.textContent = s.stage_percent + '%';
       } else if (stages.indexOf(s.current_stage) > stages.indexOf(st) || s.status === 'done') {
@@ -462,6 +930,28 @@ async function pollStatus() {
       showError(s.error || '未知错误');
       return;
     }
+
+    if (s.status === 'waiting_selection') {
+      // 显示命题选择卡片
+      $('#propositions-card').classList.remove('hidden');
+      $('#refresh-props-btn').disabled = false;
+      $('#refresh-props-btn').textContent = '🔄 换一批看点';
+      if (s.propositions && s.propositions.length > 0 &&
+          (allPropositions.length === 0 || JSON.stringify(allPropositions) !== JSON.stringify(s.propositions))) {
+        allPropositions = s.propositions;
+        renderPropositions();
+        updatePropSelectionUI();
+      }
+      return; // 等待用户选择，不继续到done
+    } else {
+      // 非等待状态，禁用换一批按钮
+      $('#refresh-props-btn').disabled = true;
+      // 非等待状态时隐藏命题卡片
+      if (s.status !== 'running' || !['propose'].includes(s.current_stage)) {
+        // 还在propose阶段时可能还没结果，保持隐藏
+      }
+    }
+
     if (s.status === 'done') {
       clearInterval(pollTimer);
       showResults(s);
@@ -470,6 +960,97 @@ async function pollStatus() {
     console.error(e);
   }
 }
+
+// --- Proposition selection interactions ---
+// 评分筛选
+$('#score-filter').addEventListener('input', () => {
+  scoreFilter = parseInt($('#score-filter').value);
+  $('#score-filter-val').textContent = scoreFilter;
+  renderPropositions();
+});
+// 分类筛选
+document.querySelectorAll('#cat-filters .cat-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('#cat-filters .cat-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    catFilter = chip.dataset.cat;
+    renderPropositions();
+  });
+});
+// 全选
+$('#select-all-btn').addEventListener('click', () => {
+  selectedPropIds = new Set();
+  allPropositions.forEach(p => {
+    if (p.score >= scoreFilter && (catFilter === 'all' || p.category === catFilter)) {
+      selectedPropIds.add(p.id);
+    }
+  });
+  renderPropositions();
+  updatePropSelectionUI();
+});
+// 全不选
+$('#deselect-all-btn').addEventListener('click', () => {
+  selectedPropIds = new Set();
+  renderPropositions();
+  updatePropSelectionUI();
+});
+// 只选≥4星
+$('#select-highscore-btn').addEventListener('click', () => {
+  selectedPropIds = new Set();
+  allPropositions.forEach(p => {
+    if (p.score >= 4) selectedPropIds.add(p.id);
+  });
+  renderPropositions();
+  updatePropSelectionUI();
+});
+// 排序切换
+document.querySelectorAll('[data-sort]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    propSort = chip.dataset.sort;
+    document.querySelectorAll('[data-sort]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    renderPropositions();
+  });
+});
+// 换一批看点
+$('#refresh-props-btn').addEventListener('click', async () => {
+  if (!confirm('确定要重新提取一批看点吗？当前选择会清空。')) return;
+  $('#refresh-props-btn').disabled = true;
+  $('#refresh-props-btn').textContent = '⏳ 重新提取中...';
+  const r = await fetch('/api/refresh-propositions', {method: 'POST'});
+  const data = await r.json();
+  if (!r.ok) {
+    alert('刷新失败：' + (data.error || '未知错误'));
+    $('#refresh-props-btn').disabled = false;
+    $('#refresh-props-btn').textContent = '🔄 换一批看点';
+  }
+  // 不管成功失败，清空当前选择，等待轮询拿到新命题
+  selectedPropIds = new Set();
+  updatePropSelectionUI();
+  // 按钮会在新命题加载后恢复
+});
+// 生成选中切片
+$('#generate-clips-btn').addEventListener('click', async () => {
+  if (selectedPropIds.size === 0) return;
+  const propIds = Array.from(selectedPropIds);
+  $('#generate-clips-btn').disabled = true;
+  $('#generate-clips-btn').textContent = '⏳ 精修中，请稍候...';
+  // 隐藏命题卡片，回到进度卡片
+  $('#propositions-card').classList.add('hidden');
+  $('#progress-card').classList.remove('hidden');
+
+  const r = await fetch('/api/select-propositions', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({prop_ids: propIds}),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    showError(data.error || '提交选择失败');
+    return;
+  }
+  // 继续轮询，会自动进入refine→render→done流程
+});
 
 function renderClipList(container, clips, clipsBaseUrl) {
   container.innerHTML = '';
@@ -497,19 +1078,60 @@ function renderClipList(container, clips, clipsBaseUrl) {
 
 function showResults(s) {
   $('#progress-card').classList.add('hidden');
+  $('#propositions-card').classList.add('hidden');
   $('#results-card').classList.remove('hidden');
   currentClipsDir = s.clips_dir;
 
   const clips = (s.manifest && s.manifest.clips) || [];
   const totalDur = clips.reduce((a,c) => a + (c.duration||0), 0);
-
-  $('#results-summary').innerHTML =
-    `<div class="alert alert-ok">共生成 <b>${clips.length}</b> 条切片，总时长 ${fmtDur(totalDur)}</div>`;
+  const failed = (s.manifest && s.manifest.failed_props) || [];
+  let summaryHtml = `<div class="alert alert-ok">共生成 <b>${clips.length}</b> 条切片，总时长 ${fmtDur(totalDur)}</div>`;
+  if (failed && failed.length > 0) {
+    summaryHtml += `<div class="alert alert-warn">⚠️ ${failed.length} 个命题精修失败已跳过：${failed.join('、')}</div>`;
+  }
+  $('#results-summary').innerHTML = summaryHtml;
 
   renderClipList($('#clips-list'), clips, '/clips');
 
   // Reload history to show new item
   loadHistory();
+}
+
+/**
+ * 加载历史配置并跳转到重剪表单
+ */
+async function handleRecut(outputDir) {
+  const r = await fetch('/api/history/config', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({path: outputDir}),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    alert('获取历史配置失败：' + (data.error || '未知错误'));
+    return;
+  }
+  // 停止轮询
+  if (pollTimer) clearInterval(pollTimer);
+  // 先回到配置页（重置所有状态）
+  resetToUpload();
+  $('#video-label').textContent = '';
+  // 填充选中视频（会自动显示已选视频信息、启用开始按钮），标记复用原目录
+  data.video.reuse_dir = outputDir;
+  setSelectedVideo(data.video);
+  // 填充表单参数
+  const config = data.config || {};
+  const mode = config.mode || 'propose';
+  setMode(mode);
+  $('#num-clips-select').value = String(config.num_clips ?? 0);
+  $('#subtitles-cb').checked = Boolean(config.subtitles);
+  $('#preview-cb').checked = Boolean(config.preview);
+  $('#grade-select').value = config.grade ?? 'auto';
+  const minDur = Math.max(10, Math.min(599, parseInt(config.min_duration ?? 30)));
+  const maxDur = Math.max(minDur + 1, Math.min(600, parseInt(config.max_duration ?? 300)));
+  $('#min-duration').value = minDur;
+  $('#max-duration').value = maxDur;
+  updateDurationLabels();
 }
 
 async function loadHistory() {
@@ -525,28 +1147,86 @@ async function loadHistory() {
     card.classList.remove('hidden');
     container.innerHTML = '';
     data.items.forEach((item, idx) => {
-      const totalDur = item.clips.reduce((a,c) => a + (c.duration||0), 0);
-      const date = new Date(item.created_at * 1000);
-      const dateStr = date.toLocaleString('zh-CN');
+      const versions = item.versions || [];
+      const latestDate = new Date(item.created_at * 1000);
+      const latestDateStr = latestDate.toLocaleString('zh-CN');
+      const latestVersion = versions[0] || {};
+      const latestTotalDur = latestVersion.total_duration || 0;
+      const versionCount = item.version_count || versions.length || 0;
+
       const div = document.createElement('div');
       div.className = 'history-item';
+
+      // 视频头部：名称、版本数、操作按钮
+      let versionsHtml = '';
+      if (versions.length > 0) {
+        versionsHtml = `<div class="version-list hidden" id="history-versions-${idx}">`;
+        versions.forEach((ver, vIdx) => {
+          const verDate = new Date(ver.created_at * 1000);
+          const verDateStr = verDate.toLocaleString('zh-CN');
+          const clipsId = `history-clips-${idx}-v${vIdx}`;
+          const versionNum = versions.length - vIdx;
+          // 完全和顶部按钮结构一致，普通div，通过toggle hidden类实现展开收起
+          versionsHtml += `
+            <div class="version-item">
+              <div class="version-header" data-clips-target="${clipsId}">
+                <div class="version-title">
+                  <span class="toggle-icon">▶</span>
+                  版本 ${versionNum}
+                </div>
+                <div class="version-meta">${verDateStr} · ${ver.clip_count}条 · ${fmtDur(ver.total_duration)}</div>
+              </div>
+              <div class="version-clips hidden" id="${clipsId}"></div>
+            </div>
+          `;
+        });
+        versionsHtml += '</div>';
+      }
+
       div.innerHTML = `
         <div class="history-header">
-          <div class="history-title">${escapeHtml(item.video_name)}</div>
-          <div class="history-meta">${dateStr} · ${item.clip_count}条切片 · 总时长 ${fmtDur(totalDur)}</div>
+          <div class="history-title" style="cursor: pointer;" data-toggle-versions="${idx}">
+            ${escapeHtml(item.video_name)}
+            <span class="version-badge">${versionCount}个版本</span>
+          </div>
+          <div class="history-meta">最新：${latestDateStr} · ${latestVersion.clip_count || 0}条 · ${fmtDur(latestTotalDur)}</div>
         </div>
-        <div class="history-actions" style="margin-bottom: 8px;">
-          <button class="secondary btn-open-folder" style="font-size:13px;padding:4px 12px;" data-path="${item.clips_dir}">📂 打开文件夹</button>
-          <button class="secondary btn-toggle-clips" style="font-size:13px;padding:4px 12px;" data-idx="${idx}">▶ 查看切片</button>
+        <div class="history-actions" style="margin-bottom: 8px; gap: 6px; display: flex; flex-wrap: wrap;">
+          <button class="secondary btn-open-folder" style="font-size:13px;padding:4px 12px;" data-path="${item.output_dir}">📂 打开文件夹</button>
+          <button class="secondary btn-toggle-versions" style="font-size:13px;padding:4px 12px;" data-idx="${idx}">▶ 查看所有版本</button>
+          <button class="secondary btn-retry" style="font-size:13px;padding:4px 12px;" data-output-dir="${item.output_dir}">🔄 重剪</button>
+          <button class="secondary btn-delete" style="font-size:13px;padding:4px 12px; color:#dc2626;" data-output-dir="${item.output_dir}">🗑️ 删除</button>
         </div>
-        <div class="history-clips hidden" id="history-clips-${idx}"></div>
+        ${versionsHtml}
       `;
       container.appendChild(div);
-      // Render clips hidden
-      const clipsContainer = div.querySelector(`#history-clips-${idx}`);
-      renderClipList(clipsContainer, item.clips, '/clips');
+
+      // 预渲染所有版本的切片列表
+      if (versions.length > 0) {
+        versions.forEach((ver, vIdx) => {
+          const clipsContainer = div.querySelector(`#history-clips-${idx}-v${vIdx}`);
+          if (clipsContainer) {
+            renderClipList(clipsContainer, ver.clips || [], '/clips');
+          }
+        });
+      }
+
+      // 完全照搬顶部「查看/收起版本列表」按钮的实现逻辑，点击整行展开/收起单个版本
+      div.querySelectorAll('.version-header').forEach(header => {
+        header.addEventListener('click', () => {
+          const clipsId = header.dataset.clipsTarget;
+          const clipsEl = document.getElementById(clipsId);
+          const icon = header.querySelector('.toggle-icon');
+          if (!clipsEl || !icon) return;
+          const isHidden = clipsEl.classList.contains('hidden');
+          clipsEl.classList.toggle('hidden');
+          icon.classList.toggle('open', !isHidden);
+          icon.textContent = isHidden ? '▼' : '▶';
+        });
+      });
     });
-    // Bind open folder buttons for history
+
+    // 打开文件夹：打开视频总目录
     $$('.btn-open-folder').forEach(btn => {
       btn.addEventListener('click', async () => {
         const path = btn.dataset.path;
@@ -557,15 +1237,50 @@ async function loadHistory() {
         });
       });
     });
-    // Bind toggle clips buttons
-    $$('.btn-toggle-clips').forEach(btn => {
+
+    // 切换版本列表显示/隐藏
+    $$('.btn-toggle-versions').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = btn.dataset.idx;
-        const clipsEl = $(`#history-clips-${idx}`);
-        const isHidden = clipsEl.classList.contains('hidden');
-        clipsEl.classList.toggle('hidden');
-        btn.textContent = isHidden ? '▼ 收起切片' : '▶ 查看切片';
+        const versionsEl = $(`#history-versions-${idx}`);
+        if (!versionsEl) return;
+        const isHidden = versionsEl.classList.contains('hidden');
+        versionsEl.classList.toggle('hidden');
+        btn.textContent = isHidden ? '▼ 收起版本列表' : '▶ 查看所有版本';
       });
+    });
+    // 点击版本徽章也能切换
+    $$('[data-toggle-versions]').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = el.dataset.toggleVersions;
+        const btn = document.querySelector(`.btn-toggle-versions[data-idx="${idx}"]`);
+        if (btn) btn.click();
+      });
+    });
+
+
+    // 删除整个视频
+    $$('.btn-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const path = btn.dataset.outputDir;
+        if (!confirm('确定要删除这个视频吗？删除后所有版本和缓存文件都无法恢复。')) return;
+        const r = await fetch('/api/history/delete', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({path}),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          alert('删除失败：' + (data.error || '未知错误'));
+          return;
+        }
+        loadHistory();
+      });
+    });
+
+    // 重剪
+    $$('.btn-retry').forEach(btn => {
+      btn.addEventListener('click', () => handleRecut(btn.dataset.outputDir));
     });
   } catch(e) {
     console.error('Failed to load history:', e);
@@ -577,11 +1292,121 @@ function escapeHtml(t) {
 }
 
 $('#open-folder-btn').addEventListener('click', async () => {
-  await fetch('/api/open-folder', {method:'POST'});
+  await fetch('/api/open-folder', {
+    method:'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({path: currentClipsDir})
+  });
 });
 
-loadConfig();
-loadHistory();
+/**
+ * 重置页面状态回到上传页，不需要刷新页面
+ */
+async function resetToUpload() {
+  // 停止轮询
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  // 强制重置后台任务状态，清除卡住的任务
+  try {
+    await fetch('/api/reset', {method: 'POST'});
+  } catch(e) {}
+  // 重置命题选择状态
+  allPropositions = [];
+  selectedPropIds = new Set();
+  scoreFilter = 1;
+  catFilter = 'all';
+  $('#score-filter').value = 1;
+  $('#score-filter-val').textContent = '1';
+  document.querySelectorAll('#cat-filters .cat-chip').forEach(c => c.classList.remove('active'));
+  document.querySelector('#cat-filters .cat-chip[data-cat="all"]').classList.add('active');
+  $('#generate-clips-btn').disabled = true;
+  $('#generate-clips-btn').innerHTML = '✂️ 生成切片（<span id="selected-count" class="selected-count">0</span>条）';
+  // 重置所有表单控件到默认值
+  $('#num-clips-select').value = '0';
+  $('#subtitles-cb').checked = false;
+  $('#preview-cb').checked = false;
+  $('#grade-select').value = 'auto';
+  $('#min-duration').value = 30;
+  $('#max-duration').value = 300;
+  updateDurationLabels();
+  setMode('propose');
+  // 收起高级选项
+  $('.advanced-panel').removeAttribute('open');
+  // 清空选中的视频
+  clearSelectedVideo();
+  // 重置上传区域状态
+  $('#drop-area').style.pointerEvents = '';
+  $('#drop-area').style.opacity = '';
+  $('#upload-progress').classList.add('hidden');
+  $('#upload-fill').style.width = '0%';
+  $('#upload-status').textContent = '准备上传...';
+  $('#file-input').value = '';
+  // 隐藏所有结果/进度/错误/命题卡片
+  $('#progress-card').classList.add('hidden');
+  $('#error-card').classList.add('hidden');
+  $('#results-card').classList.add('hidden');
+  $('#propositions-card').classList.add('hidden');
+  // 显示上传配置卡片
+  $('#config-card').classList.remove('hidden');
+  $('#start-btn').disabled = true;
+  // 刷新历史记录
+  loadHistory();
+}
+
+// 绑定所有重置按钮事件
+$('#new-video-top').addEventListener('click', resetToUpload);
+$('#new-video-bottom').addEventListener('click', resetToUpload);
+$('#error-retry-btn').addEventListener('click', resetToUpload);
+
+// 页面加载时恢复任务状态，避免刷新丢失进度
+async function init() {
+  await loadConfig();
+  await loadHistory();
+
+  // 查询当前是否有正在运行的任务，有则恢复进度界面
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    if (s.status && s.status !== 'idle' && s.status !== 'error') {
+      // 有正在运行/等待选择的任务，恢复到进度界面
+      $('#config-card').classList.add('hidden');
+      $('#progress-card').classList.remove('hidden');
+      $('#video-label').textContent = '— ' + s.video_name;
+
+      if (s.status === 'waiting_selection') {
+        // 等待选择状态，显示命题卡片
+        $('#propositions-card').classList.remove('hidden');
+        if (s.propositions && s.propositions.length > 0) {
+          allPropositions = s.propositions;
+          renderPropositions();
+          updatePropSelectionUI();
+        }
+        // 启动轮询更新进度
+        pollTimer = setInterval(pollStatus, 1000);
+        pollStatus();
+        return;
+      } else if (s.status === 'done') {
+        // 任务已完成，直接显示结果页
+        showResults(s);
+        return;
+      } else if (s.status === 'running') {
+        // 任务运行中，启动轮询
+        pollTimer = setInterval(pollStatus, 1000);
+        pollStatus();
+        return;
+      }
+    } else if (s.status === 'error') {
+      // 错误状态，显示错误页
+      showError(s.error || '任务异常');
+      return;
+    }
+  } catch(e) {
+    console.warn('查询任务状态失败:', e);
+  }
+}
+init();
 </script>
 </body>
 </html>
