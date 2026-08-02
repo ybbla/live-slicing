@@ -233,7 +233,7 @@ def api_start():
     num_clips = max(0, min(num_clips, 16))
 
     # 调色模式校验
-    allowed_grades = {"auto", "none", "light", "warm_cinematic"}
+    allowed_grades = {"auto", "none", "light", "neutral_punch", "warm_cinematic"}
     grade = str(data.get("grade", "auto")).lower()
     if grade not in allowed_grades:
         grade = "auto"
@@ -357,9 +357,10 @@ def api_start():
 
 @app.route("/api/select-propositions", methods=["POST"])
 def api_select_propositions():
-    """提交选中的命题ID列表，恢复流水线继续精修+渲染。"""
+    """提交选中的命题ID列表，恢复流水线继续精修+渲染。支持merge参数将多个命题合并为单个切片。"""
     data = request.get_json(force=True) or {}
     prop_ids_raw = data.get("prop_ids", [])
+    merge = bool(data.get("merge", False))
     try:
         prop_ids = [int(pid) for pid in prop_ids_raw]
     except (TypeError, ValueError):
@@ -368,7 +369,7 @@ def api_select_propositions():
         return jsonify({"error": "请至少选择一个看点"}), 400
     if not jm.current or jm.current.status != "waiting_selection":
         return jsonify({"error": "当前没有等待选择的任务"}), 409
-    ok = jm.resume_with_selection(prop_ids)
+    ok = jm.resume_with_selection(prop_ids, merge=merge)
     if not ok:
         return jsonify({"error": "恢复任务失败"}), 500
     return jsonify({"ok": True})
@@ -395,24 +396,61 @@ def api_status():
 def serve_clip(filename: str):
     """提供切片文件访问服务，支持预览和下载。
 
+    支持两种路径格式：
+    1. 版本化路径：<video_stem>/clips_YYYYMMDD_HHMMSS/clip_NNN.mp4，直接定位到指定版本目录
+    2. 裸文件名（向后兼容）：clip_NNN.mp4，递归搜索所有clips_*目录返回最近匹配项
+
     安全防护：禁止路径遍历，仅允许访问output目录下clips子目录内的文件。
     """
     # 拦截路径遍历攻击
     if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
         abort(404)
-    # 递归查找所有输出目录下以clips开头的文件夹（支持clips软链接、clips_时间戳目录）
+
+    # 版本化路径：包含路径分隔符，直接解析定位
+    if "/" in filename or "\\" in filename:
+        try:
+            # 相对于OUTPUT_DIR解析完整路径
+            target = (OUTPUT_DIR / filename).resolve()
+            output_root = OUTPUT_DIR.resolve()
+            target.relative_to(output_root)
+            # 校验路径中包含clips_目录
+            rel_parts = target.relative_to(output_root).parts
+            has_clips_dir = any(part.startswith("clips_") for part in rel_parts[:-1])
+            if has_clips_dir and target.exists() and target.is_file():
+                # 确定文件所在的clips目录
+                clips_dir = target.parent
+                # 向上查找clips_开头的目录
+                for parent in [target.parent] + list(target.parents):
+                    try:
+                        parent.relative_to(output_root)
+                        if parent.name.startswith("clips_"):
+                            clips_dir = parent
+                            break
+                    except ValueError:
+                        break
+                return send_from_directory(str(clips_dir), target.name)
+        except ValueError:
+            abort(403)
+        abort(404)
+
+    # 裸文件名（向后兼容）：递归查找最新的匹配文件
+    candidates = []
     for clips_dir in OUTPUT_DIR.rglob("clips*"):
         if not clips_dir.is_dir() or not clips_dir.name.startswith("clips"):
             continue
         try:
             clips_resolved = clips_dir.resolve()
             target = (clips_resolved / filename).resolve()
-            # 校验目标文件确实在clips目录内
             target.relative_to(clips_resolved)
+            if target.exists() and target.is_file():
+                candidates.append((target.stat().st_mtime, clips_resolved, filename))
         except ValueError:
             continue
-        if target.exists() and target.is_file():
-            return send_from_directory(str(clips_resolved), filename)
+    if candidates:
+        # 返回最新修改的版本
+        candidates.sort(reverse=True, key=lambda x: x[0])
+        _, clips_dir, fname = candidates[0]
+        return send_from_directory(str(clips_dir), fname)
     abort(404)
 
 
@@ -451,8 +489,14 @@ def api_history():
                 clips = manifest.get("clips", [])
                 total_dur = sum(c.get("duration", 0) for c in clips)
                 config = manifest.get("config", {})
+                # 计算相对OUTPUT_DIR的路径，用于版本化文件访问
+                try:
+                    clips_rel = str(clips_dir.resolve().relative_to(OUTPUT_DIR.resolve())).replace("\\", "/")
+                except ValueError:
+                    clips_rel = clips_dir.name
                 versions.append({
                     "clips_dir": str(clips_dir),
+                    "clips_rel": clips_rel,
                     "created_at": mtime,
                     "clip_count": len(clips),
                     "total_duration": round(total_dur, 1),

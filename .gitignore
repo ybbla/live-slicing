@@ -57,8 +57,7 @@ logs/
 # Generated output directories
 edit/
 edit_*/
-data/uploads/
-data/output/
+data/
 
 # Large media files (test inputs / outputs)
 *.mp4
@@ -80,6 +79,7 @@ data/output/
 playwright-report/
 test-results/
 playwright/.cache/
+test-screenshots/
 
 # Claude Code
 .claude/

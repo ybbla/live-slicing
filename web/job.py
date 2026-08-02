@@ -85,6 +85,7 @@ class Job:
     clips_dir: Path | None = None
     propositions: list | None = None
     selected_prop_ids: list[int] = field(default_factory=list)
+    merge_selected: bool = False
     resume_event: threading.Event | None = None
     refresh_propositions: bool = False
     error: str | None = None
@@ -299,11 +300,12 @@ class JobManager:
         t.start()
         return job
 
-    def resume_with_selection(self, prop_ids: list[int]) -> bool:
+    def resume_with_selection(self, prop_ids: list[int], merge: bool = False) -> bool:
         """用户提交选择后恢复命题模式流水线。
 
         Args:
             prop_ids: 用户选中的命题ID列表
+            merge: 是否将选中的命题合并为单个切片
 
         Returns:
             是否成功恢复
@@ -313,10 +315,14 @@ class JobManager:
             if not job or job.status != "waiting_selection":
                 return False
             job.selected_prop_ids = list(prop_ids)
+            job.merge_selected = bool(merge)
             job.status = "running"
             job.current_stage = "refine"
             job.stage_percent = 0
-            job.stage_message = f"开始精修 {len(prop_ids)} 个选中命题…"
+            if merge:
+                job.stage_message = f"开始精修并合并 {len(prop_ids)} 个选中命题…"
+            else:
+                job.stage_message = f"开始精修 {len(prop_ids)} 个选中命题…"
             job.refresh_propositions = False
             if job.resume_event:
                 job.resume_event.set()
@@ -438,7 +444,11 @@ class JobManager:
                     break
 
                 # 第二阶段：精修+渲染
-                on_progress("refine", 0, f"开始精修 {len(job.selected_prop_ids)} 个选中命题…")
+                merge_mode = getattr(job, 'merge_selected', False)
+                if merge_mode:
+                    on_progress("refine", 0, f"开始精修并合并 {len(job.selected_prop_ids)} 个选中命题…")
+                else:
+                    on_progress("refine", 0, f"开始精修 {len(job.selected_prop_ids)} 个选中命题…")
                 manifest = run_from_selection(
                     video=job.video_path,
                     edit_dir=edit_dir,
@@ -448,6 +458,7 @@ class JobManager:
                     preview=job.preview,
                     min_duration=job.min_duration,
                     max_duration=job.max_duration,
+                    merge=merge_mode,
                     on_progress=on_progress,
                 )
             else:
@@ -466,7 +477,12 @@ class JobManager:
                 )
 
             job.manifest = manifest
-            job.clips_dir = edit_dir / "clips"
+            # 优先从manifest读取实际带时间戳的clips目录，兼容旧清单回退到clips软链接
+            clips_dir_str = manifest.get("clips_dir")
+            if clips_dir_str:
+                job.clips_dir = Path(clips_dir_str)
+            else:
+                job.clips_dir = edit_dir / "clips"
             job.current_stage = "done"
             job.stage_percent = 100
             job.stage_message = f"完成！共 {len(manifest.get('clips', []))} 条切片"

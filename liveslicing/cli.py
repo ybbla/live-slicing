@@ -209,6 +209,7 @@ def run(
     manifest = {
         "video": str(video.resolve()),
         "output_dir": str(edit_dir.resolve()),
+        "clips_dir": str(clips_dir.resolve()),
         "mode": "auto",
         "created_at": datetime.now().isoformat(),
         "config": {
@@ -324,13 +325,12 @@ def _run_transcribe_pack(edit_dir: Path, video: Path, app_key: str, from_stage: 
                 on_progress(stage, pct, msg.lstrip())
             except Exception:
                 pass
-    # 1. 转录
+    # 1. 转录（永远是第1阶段，不管总阶段数）
     if from_stage in ("all", "transcribe"):
-        stage_num = total_stages - 3
-        _p("transcribe", 0, f"\n[{stage_num}/{total_stages}] 转录 {video.name} (火山 ASR)")
+        _p("transcribe", 0, f"\n[1/{total_stages}] 转录 {video.name} (火山 ASR)")
         transcribe_one(video, edit_dir, app_key, language=None, on_progress=on_progress)
 
-    # 2. 打包（缓存有效则跳过）
+    # 2. 打包（永远是第2阶段，不管总阶段数）
     packed_path = edit_dir / "takes_packed.md"
     transcripts_dir = edit_dir / "transcripts"
     need_pack = True
@@ -342,11 +342,10 @@ def _run_transcribe_pack(edit_dir: Path, video: Path, app_key: str, from_stage: 
                 need_pack = True
                 break
     if need_pack and from_stage in ("all", "transcribe", "pack"):
-        stage_num = total_stages - 2
-        _p("pack", 0, f"\n[{stage_num}/{total_stages}] 打包转录 takes_packed.md")
+        _p("pack", 0, f"\n[2/{total_stages}] 打包转录 takes_packed.md")
         pack_transcripts(edit_dir, on_progress=on_progress)
     elif packed_path.exists():
-        _p("pack", 100, f"\n[{total_stages-2}/{total_stages}] 使用缓存打包结果，跳过")
+        _p("pack", 100, f"\n[2/{total_stages}] 使用缓存打包结果，跳过")
 
 
 def run_to_propositions(
@@ -405,7 +404,7 @@ def run_to_propositions(
             _p("propose", 100, f"  共发现 {len(propositions)} 个精彩看点")
             for p in propositions:
                 dur = p["end"] - p["start"]
-                print(f"    {p['id']}. [{p['category']}] {p['title']} (~{dur:.0f}s, {p['score']}星)")
+                print(f"    {p['id']}. {p['title']} (~{dur:.0f}s)")
         else:
             _p("propose", 100, "  ⚠️ 未提取到命题，请切换到全自动模式重试")
 
@@ -422,6 +421,7 @@ def run_from_selection(
     min_duration: float = 30.0,
     max_duration: float = 300.0,
     max_concurrency: int = 3,
+    merge: bool = False,
     on_progress=None,
 ) -> dict:
     """命题模式第二阶段：根据用户选中的命题ID，精修选段并渲染。
@@ -459,7 +459,17 @@ def run_from_selection(
     if not selected_props:
         raise RuntimeError("未选中任何有效命题")
 
-    _p("refine", 0, f"\n[4/5] 精修 {len(selected_props)} 个选中命题的切点…")
+    print(f"DEBUG: merge={merge}, 选中命题数={len(selected_props)}", flush=True)
+    if merge:
+        _p("refine", 0, f"\n[4/5] 智能合并 {len(selected_props)} 个选中命题…")
+        # 合并模式进度固定提示，不需要计算分段进度
+        def _refine_progress(_done, _total):
+            _p("refine", 50, f"  整合总结内容并精修切点…")
+    else:
+        _p("refine", 0, f"\n[4/5] 精修 {len(selected_props)} 个选中命题的切点…")
+        def _refine_progress(done: int, total: int):
+            pct = int(80 * done / total) + 10
+            _p("refine", pct, f"  精修进度 {done}/{total}")
 
     # 读取phrases用于精修和吸附
     packed_path = edit_dir / "takes_packed.md"
@@ -468,10 +478,6 @@ def run_from_selection(
 
     failed_props = []  # 记录精修失败的命题标题
 
-    def _refine_progress(done: int, total: int):
-        pct = int(80 * done / total) + 10
-        _p("refine", pct, f"  精修进度 {done}/{total}")
-
     final_clips = props_mod.refine_propositions(
         phrases, selected_props,
         min_dur=min_duration, max_dur=max_duration,
@@ -479,17 +485,33 @@ def run_from_selection(
         on_progress=_refine_progress,
         on_log=lambda msg: _p("refine", 50, msg),
         failed_props=failed_props,  # 传入列表收集失败项
+        merge=merge,
     )
 
     if not final_clips:
         raise RuntimeError("所有命题精修失败，无法生成切片")
 
+    # 最终成品阶段统一校验时长（精修阶段不卡最大时长）
+    max_allowed = max_duration * 1.2
+    valid_clips = []
+    for c in final_clips:
+        total_dur = sum(s["end"] - s["start"] for s in c["segments"])
+        if total_dur > max_allowed:
+            _p("refine", 50, f"  跳过\"{c['title']}\"：时长{total_dur:.1f}s超出最长限制{max_allowed:.0f}s")
+            continue
+        valid_clips.append(c)
+    final_clips = valid_clips
+    if not final_clips:
+        raise RuntimeError(f"所有切片时长超出最长限制{max_allowed:.0f}s，请调大单条最长时长或减少选中内容")
+
     _p("refine", 100, f"  精修完成，共 {len(final_clips)} 条有效切片" + (f"，{len(failed_props)}个命题精修失败" if failed_props else ""))
+
+    # 打印最终切片信息
     for i, c in enumerate(final_clips):
-        segs = c["segments"]
-        dur = sum(s["end"] - s["start"] for s in segs)
-        segs_str = " + ".join(f"[{s['start']:7.2f}-{s['end']:7.2f}]" for s in segs)
-        print(f"  {i+1}. {segs_str}  ({dur:5.1f}s)  {c['title']}")
+            segs = c["segments"]
+            dur = sum(s["end"] - s["start"] for s in segs)
+            segs_str = " + ".join(f"[{s['start']:7.2f}-{s['end']:7.2f}]" for s in segs)
+            print(f"  {i+1}. {segs_str}  ({dur:5.1f}s)  {c['title']}")
 
     # 写EDL
     edl = {
@@ -532,6 +554,7 @@ def run_from_selection(
     manifest = {
         "video": str(video.resolve()),
         "output_dir": str(edit_dir.resolve()),
+        "clips_dir": str(clips_dir.resolve()),
         "mode": "propose",
         "created_at": datetime.now().isoformat(),
         "failed_props": failed_props,
@@ -543,6 +566,7 @@ def run_from_selection(
             "grade": grade,
             "min_duration": min_duration,
             "max_duration": max_duration,
+            "merge": merge,
         },
         "clips": [
             {

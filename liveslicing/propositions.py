@@ -37,51 +37,37 @@ from liveslicing.pick_clips import (
 # ────────────────── 命题提取系统提示词 ──────────────────
 
 PROPOSE_SYSTEM_PROMPT = """\
-你是资深直播内容分析师，核心任务是**穷举所有值得剪成独立短视频的精彩内容，宁多勿漏，完整性优先**。
-请通读完整份直播台词后，列出所有有传播价值的内容命题。用户会自己筛选最终要剪的内容，你只负责找全、找完整，不要自行过滤你觉得"不够好"的内容。
+你是资深直播内容分析师，核心任务是**将整个直播转录文本全面拆解为独立完整的内容命题，最大化覆盖所有有实际意义的内容，宁多勿漏，全覆盖优先**。
+请通读完整份直播台词后，将所有可以独立成篇、表达了完整观点/内容/事件的片段都拆分为命题。用户会自己筛选最终要剪的内容，你只负责拆全、拆完整，不要自行过滤你觉得"不够精彩"的内容，只要是有明确主题的完整内容都要列出来。
 
 ⚠️ 核心原则：此阶段仅负责识别内容和圈定大致范围，**不需要追求切点精准、不需要卡时长、不需要过滤铺垫、不需要裁剪冗余**。后续会有专门的精修阶段来收窄切点、优化开头结尾、裁剪冗余、控制时长、对齐语句边界，所以你圈的时间范围宽一点完全没关系，窄了漏核心内容才是致命问题。
 
-【命题分类（选最贴切的主分类即可，跨分类内容选核心属性对应的分类，不需要严格互斥）】
-- 金句：反常识观点/犀利结论/情绪价值表达/直击痛点的总结（带货直播中高转化的痛点戳中、报价福利钩子也归入此类）
-- 冲突：观点争论/情绪爆发/连麦对峙/质疑回应
-- 干货：实用方法/教程攻略/经验总结/行业内幕/避坑指南/产品核心卖点讲解
-- 故事：亲身经历/真实案例/用户见证/八卦幕后/创业故事
-- 反转：神回应/剧情转折/悬念揭晓/打脸现场
-- 趣味：搞笑名场面/玩梗/口误/主播互动整活/直播间突发趣事
-- 回应：观众答疑/问题解答/针对性科普
-
 【输出字段（严格按要求输出，字段不要增减）】
 id：从1开始连续编号
-title：≤15字，短视频标题风格，抓眼球带钩子，明确核心亮点
-summary：2-3句话，讲清核心内容和传播价值，让人一眼知道这个片段讲什么、为什么值得看
-category：从上述7个分类中选最贴切的主分类
-score：1-5分，评分参考：
-  5分=必切爆款：强情绪冲击/反常识/短平快爆点/极高实用价值，发出去大概率有高播放
-  4分=很值得切：内容扎实有干货/有趣有记忆点/价值明确
-  3分=可切可不切：普通内容/常规讲解/价值点不突出
-  2分=备胎：内容平淡无亮点/缺乏传播性
-  1分=边角料：无价值/重复内容/无关闲聊
-start/end：大致时间戳（秒），**宁宽30秒不窄1秒**：必须完整包含命题的引入、论证/展开、结论/包袱全过程，前后相关的衔接和观众反应也可以包含进去，哪怕范围大一点、有少量过渡冗余也没关系，精修会处理；单条命题建议范围不超过15分钟，过长的连续内容如果有明显子主题可以拆分
-preview：原文中最核心、最有冲击力的2-4句连续原话，≤80字，必须一字不差复制，不总结不改写不省略主语，直接放最炸的那几句结论/爆点/核心观点，**哪怕铺垫内容在时间范围内，也不要选铺垫句放在preview里**
+title：≤20字，明确核心主题，清晰说明这个命题讲的是什么，不需要刻意追求夸张抓眼球的标题党风格，准确清晰即可
+summary：2-3句话，讲清核心内容，让人一眼知道这个片段讲了什么
+start/end：精确时间戳（秒），直接使用转录文本中该命题核心内容第一行的开始时间作为start，最后一行的结束时间作为end，完全对齐文本边界，不需要额外预留冗余、不要包含不属于该命题的无关过渡内容；必须完整包含命题的核心内容（引入、论证/展开、结论），绝对不要为了追求边界精准截断核心观点/结论；单条命题建议范围不超过15分钟，过长的连续内容如果有明显子主题可以拆分。精修阶段会自动在前后上下文窗口中查找更自然的开头结尾切点，不需要在此阶段预留冗余
+preview：原文中最能代表核心内容的2-4句连续原话，≤100字，必须一字不差复制，不总结不改写不省略主语，选择核心内容原文即可，不需要刻意挑选最有冲击力的爆点句子
 
 【硬规则——必须严格遵守】
-1. 必须通读完全文再输出，不要看一部分就开始写，避免漏后面的精彩内容
+1. 必须通读完全文再输出，不要看一部分就开始写，避免漏后面的内容
 2. 命题100%独立自包含：标题/摘要/preview必须明确说清主体，禁止用"它/这个/那个/这种"等无主语代词开头，脱离上下文单独看也能完全看懂讲的是什么（正例："益生菌不要乱吃"✅，反例："不要乱吃这个"❌）
-3. 完整性第一：对于干货方法、完整故事、逻辑论证类内容，必须把前因后果、完整论点、所有关键点、结论都包含进去，绝对不能因为怕范围大而截断核心内容、漏了关键论点/包袱/结论/观众反应
-4. 允许时间重叠：同一段内容有不同角度的看点（既是金句又是干货）要分多条列出，不要合并，让用户自己选择角度
-5. 长短都要：20分钟的完整干货教程作为整体列出，十几秒的短爆点/神回应金句也必须列出，不要因为内容太短或太长忽略
-6. 明确排除以下内容，绝对不要列入：
+3. 完整性第一：对于方法讲解、完整故事、逻辑论证类内容，必须把前因后果、完整论点、所有关键点、结论都包含进去，绝对不能因为怕范围大而截断核心内容、漏了关键论点/结论
+4. 最大化覆盖：所有有实际信息含量的内容都要拆分为命题，包括普通的内容讲解、常规话题讨论、观点表达、故事分享、问题解答等，不要只挑所谓"爆点"内容，尽量做到所有非无意义内容都有对应的命题覆盖
+5. 双粒度并存：既要有覆盖完整大主题的长命题（如完整的教程讲解、完整的故事分享、完整的问题解答），也要有大主题内部独立的子观点、短回应、小案例、金句等细粒度命题，哪怕子命题的时间范围完全被大命题包含也要单独列出，不要因为内容属于某个大主题就合并，大小粒度的命题都要保留，用户会自己选择
+6. 时间重叠自由：命题之间允许部分重叠、完全包含，不需要刻意调整边界避免重叠，同一段内容有不同主题的拆分角度要分多条列出，不要合并，让用户自己选择角度
+7. 长短都要：20分钟的完整教程作为整体列出，十几秒的短观点/短回应也必须列出，不要因为内容太短或太长忽略
+8. 明确排除以下内容，绝对不要列入：
    - 纯无意义凑数内容：反复说的"大家好把666打公屏""点关注不迷路""接下来讲下一个"这类纯引导/过渡话术
-   - 硬广凑数内容："321上链接""左下角小黄车下单""只剩最后XX单"这类纯催促下单的无信息话术（有价格/福利/痛点钩子的内容除外，归为金句类）
-   - 无关内容：主播念礼物感谢/和助理聊无关私事/设备调试/纯停顿沉默等和内容无关的片段
+   - 纯催促下单话术："321上链接""左下角小黄车下单""只剩最后XX单""还没付款的抓紧拍""手慢无"这类无信息含量的纯促单内容（有实际价格/福利/产品卖点/痛点讲解的实质内容除外）
+   - 无关内容：主播念礼物感谢/和助理聊无关私事/设备调试/纯停顿沉默/无实质内容的简单附和感叹等和内容主题无关的片段
    - 违规敏感内容：涉及医疗宣称/极限词/敏感言论/违规引导的内容不要列入
-7. 重复内容判断：主播为了强调反复讲的完全相同的观点/内容只列一次，换角度/举不同例子讲同一主题算不同命题保留；完全雷同的重复内容合并，不同角度的重叠内容保留
-8. 按时间顺序排列，不要按评分高低排序；所有命题id连续编号，不要跳号
-9. 每条命题核心内容时长≥10秒（范围包含的铺垫不算，只要实际有价值的核心内容超过10秒即可）
+9. 重复内容判断：主播为了强调反复讲的完全相同的观点/内容只列一次，换角度/举不同例子讲同一主题算不同命题保留；完全雷同的重复内容合并，不同角度的重叠内容保留
+10. 按时间顺序排列；所有命题id连续编号，不要跳号
+11. 每条命题核心内容时长≥10秒：无实质内容的短感叹、简单附和不需要单独列为命题，只要是有完整观点/内容的片段，哪怕只有十几秒也要保留（范围包含的铺垫不算时长）
 
 只输出纯JSON对象，不要markdown代码块围栏、不要任何解释说明、不要多余文字：
-{"propositions":[{"id":1,"title":"...","summary":"...","category":"金句","score":5,"start":120.5,"end":180.3,"preview":"原话..."}]}
+{"propositions":[{"id":1,"title":"...","summary":"...","start":120.5,"end":180.3,"preview":"原话..."}]}
 """
 
 
@@ -96,15 +82,15 @@ REFINE_SYSTEM_PROMPT = """\
 - 前后文本是上下文缓冲，用于找开头/结尾衔接
 
 【精修规则（优先级从高到低）】
-1. **严格围绕命题主题**：只剪和给定命题直接相关的内容，窗口里其他无关的精彩内容不要管，绝对不能剪跑题到别的主题
-2. **开头钩子+主语完整**：前3秒必须抓眼球，起点落在金句/冲突/爆点上
+1. **严格围绕命题主题**：只剪和给定命题直接相关的内容，窗口里其他无关的精彩内容不要管，绝对不能剪跑题到别的主题；命题范围内如果出现和主题无关的插话、观众互动闲聊、主播临时跑题内容、纯口癖重复，可以直接跳过不剪，通过多段拼接把同主题的有效内容连起来即可，不需要把范围内所有内容都包含进去
+2. **开头利落+主语完整**：开头直接切入主题，避免无意义铺垫，前3秒直接进入核心内容，不要拖沓
    ❌ 禁止：
    - 发语词/口癖开头（啊/那个/就是/对吧/大家好等）
    - 无主语代词开头（它/这个/那种/这就是等），必须明确主体（"磷虾油能降血脂"✅，"能降血脂"❌）
-   ✅ 如果范围内开头不好，可以从标记前**最多30秒**上下文找钩子，但必须和命题直接相关，不能为钩子凑无关内容
-3. **内容完整+结尾利落**：完整呈现核心观点/故事，不切关键论证/包袱/结论；结尾落在观点讲完、包袱响完、静音停顿处，不半路切断话尾；结尾有笑声/掌声等观众反应时，要把完整反应包含进去
-4. **时长控制**：总时长尽量控制在[MIN_DUR, MAX_DUR]秒之间；高评分金句/反转/趣味类短爆点最短允许15秒；如果核心观点完整讲完自然超MAX_DUR，最多允许超出20%，不要为了卡时长砍掉关键结论/包袱，绝不为了凑时长留废话
-5. **多段拼接规则**：不限制拼接段数，也不限制段间间隔，但必须满足：所有段围绕同一命题主题、语义连贯，绝对禁止拼接不相关内容；严格按时间顺序排列，禁止倒序；拼接处优先选有≥400ms静音间隔、或有笑声/掌声自然停顿的位置，剪完不跳戏
+   ✅ 如果范围内开头不好，可以从标记前**最多30秒**上下文找合适的起点，但必须和命题直接相关，不能为凑开头加入无关内容
+3. **内容完整+结尾利落**：完整呈现核心观点/故事，不切关键论证/包袱/结论；结尾落在观点讲完、包袱响完、静音停顿处，不半路切断话尾；结尾有笑声/掌声等观众反应时，最多保留2秒自然收尾即可，不要留过长的空白、停顿或者后续无关内容
+4. **时长控制**：总时长尽量控制在[MIN_DUR, MAX_DUR]秒之间；所有内容最短允许15秒；如果核心观点完整讲完自然超MAX_DUR，最多允许超出20%，不要为了卡时长砍掉关键结论/包袱，绝不为了凑时长留废话
+5. **多段拼接规则**：不限制拼接段数，段与段之间的无关内容间隔最多不超过30秒，超过则不要强行拼接，只保留连续相关的内容即可；必须满足：所有段围绕同一命题主题、语义连贯，绝对禁止拼接不相关内容；严格按时间顺序排列，禁止倒序；拼接处优先选有≥400ms静音间隔、或有笑声/掌声自然停顿的位置，剪完不跳戏
 6. **切点工艺**：
    - start/end必须是文本中出现过的短语时间戳，不自己造
    - 优先≥400ms静音处，150-400ms可用，禁止<150ms处切
@@ -115,6 +101,25 @@ REFINE_SYSTEM_PROMPT = """\
 【输出格式】纯JSON，无其他内容：
 {"segments":[{"start":123.45,"end":145.67}],"title":"标题","reason":"说明"}
 内容不足无法剪出合格切片时输出{"segments":[],"title":"","reason":"内容不足"}。
+"""
+
+
+# ────────────────── 自定义命题（多选中合并）生成提示词 ──────────────────
+
+CUSTOM_PROP_SYSTEM_PROMPT = """\
+你是直播内容分析师，请根据给定的多段直播内容，总结成一个完整独立的内容命题。
+这些内容是用户手动选中的多个相关片段，你需要将它们整合为一个连贯的主题，就像正常提取命题一样输出标题、摘要和原文预览。
+
+【输出要求】
+- title：≤25字，清晰准确概括这些内容的整体主题，不需要夸张标题党风格
+- summary：2-3句话，讲清整合后的核心内容，让人一眼知道讲了什么
+- preview：原文中最能代表核心内容的2-4句连续原话，≤100字，必须一字不差复制原文，不要改写
+- 命题必须独立自包含：标题/摘要/preview禁止使用无主语代词（它/这个/那个等），脱离上下文也能看懂
+- 所有内容围绕同一个核心主题，忽略中间穿插的无关插话内容
+- 不需要做切点判断，只需要总结内容主题即可
+
+只输出纯JSON对象，不要markdown代码块围栏、不要任何解释说明、不要多余文字：
+{"title":"...","summary":"...","preview":"原话..."}
 """
 
 
@@ -234,7 +239,7 @@ def extract_propositions(
         on_log: 日志回调函数，签名为(msg: str)
 
     Returns:
-        命题列表，每个元素包含id/title/summary/category/score/start/end/preview字段
+        命题列表，每个元素包含id/title/summary/start/end/preview字段
     """
     def _log(msg: str):
         # 只通过回调输出日志，避免重复打印到stderr导致日志重复
@@ -296,10 +301,8 @@ def _validate_propositions(props: list[dict], phrases: list[dict]) -> list[dict]
         try:
             start = float(p.get("start", 0))
             end = float(p.get("end", 0))
-            score = int(p.get("score", 3))
             title = str(p.get("title", "")).strip()
             summary = str(p.get("summary", "")).strip()
-            category = str(p.get("category", "其他")).strip()
             preview = str(p.get("preview", "")).strip()
         except (TypeError, ValueError):
             continue
@@ -313,28 +316,13 @@ def _validate_propositions(props: list[dict], phrases: list[dict]) -> list[dict]
                 end = phrases[-1]["end"]
             if end <= start:
                 continue
-        # 评分clamp到1-5
-        score = max(1, min(5, score))
-        # 分类映射，统一别名
-        cat_map = {
-            "金句": "金句", "观点": "金句", "洞见": "金句",
-            "冲突": "冲突", "争论": "冲突", "对峙": "冲突", "情绪": "冲突",
-            "干货": "干货", "教程": "干货", "方法": "干货", "经验": "干货", "建议": "干货",
-            "故事": "故事", "经历": "故事", "案例": "故事", "八卦": "故事",
-            "反转": "反转", "转折": "反转",
-            "趣味": "趣味", "搞笑": "趣味", "梗": "趣味", "名场面": "趣味",
-            "回应": "回应", "答疑": "回应", "问答": "回应",
-        }
-        category = cat_map.get(category, "其他")
-        # 预览截短到80字
-        if len(preview) > 80:
-            preview = preview[:77] + "..."
+        # 预览截短到100字
+        if len(preview) > 100:
+            preview = preview[:97] + "..."
         valid.append({
             "id": i + 1,  # 重新编号
             "title": title,
             "summary": summary,
-            "category": category,
-            "score": score,
             "start": round(start, 2),
             "end": round(end, 2),
             "preview": preview,
@@ -460,8 +448,6 @@ def refine_single_proposition(
                 "segments": valid_segs,
                 "title": str(data.get("title", prop["title"])).strip() or prop["title"],
                 "reason": str(data.get("reason", "")).strip(),
-                "category": prop.get("category", ""),
-                "score": prop.get("score", 3),
             }
         except Exception as e:
             if attempt == 0:
@@ -469,6 +455,118 @@ def refine_single_proposition(
                 time.sleep(2)
                 continue
             print(f"        精修命题#{prop.get('id')}失败，已重试1次: {e!r}", file=sys.stderr)
+            return None
+    return None
+
+
+def build_custom_prop_context(
+    phrases: list[dict],
+    selected_props: list[dict],
+) -> tuple[str, float, float]:
+    """为用户选中的多个命题构建上下文文本，用于生成合并后的新命题。
+    仅包含选中命题范围内的文本，完全跳过选中命题之间未被选中的无关内容，
+    确保总结新命题时不会包含未选中的内容。
+
+    Args:
+        phrases: 完整短语列表
+        selected_props: 选中的命题列表（会自动按start排序）
+
+    Returns:
+        (仅包含选中内容的上下文markdown文本, 总范围开始时间, 总范围结束时间)
+    """
+    if not selected_props:
+        return "", 0.0, 0.0
+    # 按开始时间排序选中的命题，计算总精确范围（所有选中命题的最早开始/最晚结束）
+    sorted_props = sorted(selected_props, key=lambda x: x["start"])
+    min_start = min(p["start"] for p in sorted_props)
+    max_end = max(p["end"] for p in sorted_props)
+
+    # 构建每个命题的时间范围集合，用于判断短语是否属于选中内容
+    selected_ranges = [(p["start"], p["end"]) for p in sorted_props]
+    # 仅提取属于任意一个选中命题范围内的短语，跳过中间未选中的内容
+    selected_phrases = []
+    for p in phrases:
+        # 判断该短语是否在任意选中命题的范围内
+        in_selected = False
+        for s, e in selected_ranges:
+            if p["start"] >= s - 0.1 and p["end"] <= e + 0.1:
+                in_selected = True
+                break
+        if in_selected:
+            selected_phrases.append(p)
+
+    if not selected_phrases:
+        return "", min_start, max_end
+
+    # 拼接仅包含选中内容的文本
+    lines = []
+    for p in selected_phrases:
+        lines.append(f"[{p['start']:06.2f}-{p['end']:06.2f}] {p['text']}")
+
+    return "\n".join(lines), min_start, max_end
+
+
+def merge_selected_propositions(
+    selected_props: list[dict],
+    phrases: list[dict],
+    min_dur: float,
+    max_dur: float,
+    client: OpenAI,
+    model: str,
+) -> dict | None:
+    """将用户选中的多个命题整合为一个新命题，复用单命题精修流程生成切片。
+
+    相当于用户自定义了一个新的大命题：范围是选中命题的最早开始到最晚结束，
+    LLM先总结这个大命题的标题/摘要/预览，然后走和普通命题完全一致的精修流程。
+
+    Args:
+        selected_props: 选中的命题列表
+        phrases: 完整短语列表
+        min_dur: 最小时长（秒）
+        max_dur: 最大时长（秒）
+        client: OpenAI客户端
+        model: 模型ID
+
+    Returns:
+        精修后的clip定义（segments/title/reason），失败返回None
+    """
+    if len(selected_props) < 2:
+        # 单个命题直接走普通精修
+        return refine_single_proposition(selected_props[0], phrases, min_dur, max_dur, client, model)
+    for attempt in range(2):
+        try:
+            context_text, total_start, total_end = build_custom_prop_context(phrases, selected_props)
+            if not context_text.strip():
+                return None
+            # 调用LLM总结为一个新命题（仅基于选中的内容，不含未选中的无关内容）
+            user_prompt = (
+                f"以下是用户选中的{len(selected_props)}个相关直播片段的文本（已过滤掉未选中的无关内容），总时间范围从{total_start:.1f}秒到{total_end:.1f}秒。\n"
+                f"请将这些内容整合总结为一个完整独立的命题：\n\n"
+                f"{context_text}"
+            )
+            data = _call_llm_json(client, model, CUSTOM_PROP_SYSTEM_PROMPT, user_prompt, temperature=0.3, timeout=300, max_retries=1)
+            if not data:
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                return None
+            # 构建新命题，时间范围使用精确的选中命题边界（转录文本自带的精确时间）
+            new_prop = {
+                "id": -1,  # 自定义命题ID为-1，不影响逻辑
+                "title": str(data.get("title", f"整合{len(selected_props)}个内容")).strip(),
+                "summary": str(data.get("summary", "")).strip(),
+                "start": total_start,
+                "end": total_end,
+                "preview": str(data.get("preview", "")).strip(),
+            }
+            # 复用现有单命题精修流程，完全和普通命题处理逻辑一致
+            return refine_single_proposition(new_prop, phrases, min_dur, max_dur, client, model)
+        except Exception as e:
+            if attempt == 0:
+                print(f"        整合命题失败(尝试{attempt+1}/2): {e!r}，2秒后重试", file=sys.stderr)
+                time.sleep(2)
+                continue
+            print(f"        整合命题失败，已重试1次: {e!r}", file=sys.stderr)
             return None
     return None
 
@@ -484,8 +582,9 @@ def refine_propositions(
     on_progress=None,
     on_log=None,
     failed_props: list | None = None,
+    merge: bool = False,
 ) -> list[dict]:
-    """对用户选中的命题逐个精修切点，支持并发加速。
+    """对用户选中的命题精修切点，支持单条精修和智能合并为一条。
 
     Args:
         phrases: 完整短语列表（来自parse_phrases）
@@ -498,6 +597,7 @@ def refine_propositions(
         on_progress: 进度回调 (done: int, total: int)
         on_log: 日志回调
         failed_props: 可选列表，用于收集精修失败的命题标题
+        merge: 是否将所有选中命题智能合并为一个连贯切片
 
     Returns:
         精修后的clip列表（已做短语边界吸附、去重、时长校验）
@@ -512,6 +612,31 @@ def refine_propositions(
 
     if not selected_props:
         return []
+
+    # 智能合并模式：直接调用合并函数返回单条结果
+    if merge:
+        _log(f"  [refine] 开始智能合并 {len(selected_props)} 个选中命题…")
+        if client is None:
+            api_key, base_url, _model = ark_config()
+            client = OpenAI(api_key=api_key, base_url=base_url, timeout=600.0)
+            if model is None:
+                model = _model
+        if model is None:
+            model = discover_model(client)
+        merged_clip = merge_selected_propositions(selected_props, phrases, min_dur, max_dur, client, model)
+        if on_progress:
+            try:
+                on_progress(1, 1)
+            except Exception:
+                pass
+        if merged_clip:
+            _log(f"  [refine] 智能合并完成：{merged_clip['title']}")
+            return [merged_clip]
+        else:
+            _log(f"  [refine] 智能合并失败")
+            if failed_props is not None:
+                failed_props.append("智能合并")
+            return []
 
     if client is None:
         api_key, base_url, _model = ark_config()
@@ -562,13 +687,11 @@ def refine_propositions(
         if not segs_out:
             continue
         # 开头口癖兜底调整
-        segs_out = _trim_opening_filler(segs_out, phrases, c.get("category", ""), c.get("score", 3))
+        segs_out = _trim_opening_filler(segs_out, phrases)
 
         total_dur = sum(s["end"] - s["start"] for s in segs_out)
-        # 高评分短爆点允许最短15秒，其他保持min_dur；上限允许超出20%
-        min_allowed = min_dur
-        if c.get("score", 0) >= 4 and c.get("category") in ("金句", "反转", "趣味"):
-            min_allowed = 15.0
+        # 所有内容统一允许最短15秒，上限允许超出20%
+        min_allowed = 15.0
         max_allowed = max_dur * 1.2
         if total_dur < min_allowed or total_dur > max_allowed:
             _log(f"    跳过\"{c['title']}\"：时长{total_dur:.1f}s超出范围{min_allowed:.0f}-{max_allowed:.0f}s")
@@ -590,19 +713,15 @@ _FILLER_STARTS = {
 }
 
 
-def _trim_opening_filler(segments: list[dict], phrases: list[dict], category: str, score: int) -> list[dict]:
+def _trim_opening_filler(segments: list[dict], phrases: list[dict]) -> list[dict]:
     """保守兜底：微调开头起点，跳过纯口癖/无意义发语词，最多后跳不超过5秒，防误伤。
 
     规则：
-    - 只有高评分（≥4分）的金句/反转/趣味类内容做积极调整，普通内容保守处理
-    - 最多往后看3个短语（约3-5秒），如果前2个都是纯口癖才调整，否则不碰
+    - 所有内容都做保守的开头口癖修剪
+    - 最多往后看3个短语（约3-5秒），如果前1个以上是纯口癖才调整，否则不碰
     - 调整后保证segment有意义，不切到无主语内容
     """
     if not segments:
-        return segments
-    # 只对高评分的短内容做兜底，普通内容完全靠LLM保证
-    is_short_highlight = score >= 4 and category in ("金句", "反转", "趣味")
-    if not is_short_highlight:
         return segments
 
     first_seg = segments[0]
@@ -683,8 +802,19 @@ def load_propositions(edit_dir: Path) -> list[dict] | None:
     try:
         data = json.loads(props_path.read_text(encoding="utf-8"))
         props = data.get("propositions", [])
-        if props:
-            return props
+        # 清理旧版本缓存中的冗余字段（category/score），保证新老数据结构一致
+        cleaned_props = []
+        for p in props:
+            cleaned_props.append({
+                "id": p.get("id"),
+                "title": p.get("title", ""),
+                "summary": p.get("summary", ""),
+                "start": p.get("start", 0),
+                "end": p.get("end", 0),
+                "preview": p.get("preview", ""),
+            })
+        if cleaned_props:
+            return cleaned_props
     except Exception:
         return None
     return None
