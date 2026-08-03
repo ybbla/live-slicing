@@ -322,18 +322,6 @@
       </label>
     </div>
 
-    <div class="form-row" id="num-clips-row">
-      <label for="num-clips-select">切片数量：</label>
-      <select id="num-clips-select" class="form-select">
-        <option value="0" selected>🤖 智能推荐（豆包自动决定）</option>
-        <option value="1">1条</option>
-        <option value="2">2条</option>
-        <option value="3">3条</option>
-        <option value="5">5条</option>
-        <option value="8">8条</option>
-        <option value="10">10条</option>
-      </select>
-    </div>
 
     <div class="checkbox-row">
       <input type="checkbox" id="subtitles-cb">
@@ -378,7 +366,10 @@
 
   <!-- Progress card -->
   <div class="card hidden" id="progress-card">
-    <h2>处理中 <span id="video-label" style="font-weight:normal;color:var(--muted);font-size:14px;"></span></h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin:0;">处理中 <span id="video-label" style="font-weight:normal;color:var(--muted);font-size:14px;"></span></h2>
+      <button class="secondary" id="back-home-progress" style="font-size:13px;padding:6px 14px;">🏠 返回首页</button>
+    </div>
 
     <div class="stages stages-auto hidden">
       <div class="stage" data-stage="transcribe">
@@ -448,7 +439,10 @@
 
   <!-- Proposition selection card -->
   <div class="card hidden" id="propositions-card">
-    <h2>🔍 发现以下精彩看点</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin:0;">🔍 发现以下精彩看点</h2>
+      <button class="secondary" id="back-home-props" style="font-size:13px;padding:6px 14px;">🏠 返回首页</button>
+    </div>
     <div class="alert alert-ok" id="prop-summary">AI 正在分析视频内容…</div>
 
     <div class="prop-toolbar">
@@ -696,7 +690,6 @@ function setMode(mode) {
     if (radio) radio.checked = (opt.dataset.mode === mode);
   });
   // 显示/隐藏全自动模式的"切片数量"选项
-  $('#num-clips-row').classList.toggle('hidden', mode !== 'auto');
   // 显示对应的stage指示器
   $('.stages-auto').classList.toggle('hidden', mode !== 'auto');
   $('.stages-propose').classList.toggle('hidden', mode !== 'propose');
@@ -721,7 +714,6 @@ $('#start-btn').addEventListener('click', async () => {
   pauseAllVideos();
   const subtitles = $('#subtitles-cb').checked;
   const preview = $('#preview-cb').checked;
-  const numClips = parseInt($('#num-clips-select').value);
   const grade = $('#grade-select').value;
   const minDuration = parseInt(minDurSlider.value);
   const maxDuration = parseInt(maxDurSlider.value);
@@ -742,7 +734,6 @@ $('#start-btn').addEventListener('click', async () => {
       video: selectedVideo.path,
       subtitles,
       preview,
-      num_clips: numClips,
       grade,
       min_duration: minDuration,
       max_duration: maxDuration,
@@ -1158,7 +1149,6 @@ async function handleRecut(outputDir) {
   const config = data.config || {};
   const mode = config.mode || 'propose';
   setMode(mode);
-  $('#num-clips-select').value = String(config.num_clips ?? 0);
   $('#subtitles-cb').checked = Boolean(config.subtitles);
   $('#preview-cb').checked = Boolean(config.preview);
   $('#grade-select').value = config.grade ?? 'auto';
@@ -1362,7 +1352,6 @@ async function resetToUpload() {
   mergeBtn.style.display = 'none';
   mergeBtn.textContent = '🧠 智能合并为连贯长视频';
   // 重置所有表单控件到默认值
-  $('#num-clips-select').value = '0';
   $('#subtitles-cb').checked = false;
   $('#preview-cb').checked = false;
   $('#grade-select').value = 'auto';
@@ -1393,10 +1382,21 @@ async function resetToUpload() {
   loadHistory();
 }
 
-// 绑定所有重置按钮事件
+/**
+ * 带确认的返回首页：中断当前任务前提示用户确认
+ */
+async function backHomeConfirm() {
+  if (confirm('确定要返回首页吗？当前任务进度将会丢失。')) {
+    await resetToUpload();
+  }
+}
+
+// 绑定所有重置/返回首页按钮事件
 $('#new-video-top').addEventListener('click', resetToUpload);
 $('#new-video-bottom').addEventListener('click', resetToUpload);
 $('#error-retry-btn').addEventListener('click', resetToUpload);
+$('#back-home-progress').addEventListener('click', backHomeConfirm);
+$('#back-home-props').addEventListener('click', backHomeConfirm);
 
 // 页面加载时恢复任务状态，避免刷新丢失进度
 async function init() {

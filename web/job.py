@@ -44,7 +44,6 @@ class Job:
         video_path: 源视频路径
         subtitles: 是否烧录硬字幕
         preview: 是否快速预览模式
-        num_clips: 全自动模式下目标切片条数，0=自动
         grade: 调色模式
         min_duration: 单条最短时长（秒）
         max_duration: 单条最长时长（秒）
@@ -70,7 +69,6 @@ class Job:
     subtitles: bool
     output_dir: Path
     preview: bool = False
-    num_clips: int = 0
     grade: str = "auto"
     min_duration: float = 30.0
     max_duration: float = 300.0
@@ -250,7 +248,6 @@ class JobManager:
         subtitles: bool,
         output_dir: Path,
         preview: bool = False,
-        num_clips: int = 0,
         grade: str = "auto",
         min_duration: float = 30.0,
         max_duration: float = 300.0,
@@ -264,7 +261,6 @@ class JobManager:
             subtitles: 是否烧录硬字幕
             output_dir: 输出目录
             preview: 是否快速预览模式
-            num_clips: 全自动模式下目标切片条数，0=自动
             grade: 调色模式
             min_duration: 单条最短时长（秒）
             max_duration: 单条最长时长（秒）
@@ -286,7 +282,6 @@ class JobManager:
                 subtitles=bool(subtitles),
                 output_dir=output_dir.resolve(),
                 preview=bool(preview),
-                num_clips=int(num_clips),
                 grade=str(grade),
                 min_duration=float(min_duration),
                 max_duration=float(max_duration),
@@ -462,11 +457,10 @@ class JobManager:
                     on_progress=on_progress,
                 )
             else:
-                # 全自动模式：原有完整流水线
+                # 全自动模式：完整流水线（自动选高光片段）
                 manifest = pipeline_run(
                     video=job.video_path,
                     edit_dir=edit_dir,
-                    count=job.num_clips,
                     min_duration=job.min_duration,
                     max_duration=job.max_duration,
                     grade=job.grade,

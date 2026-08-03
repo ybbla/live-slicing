@@ -136,88 +136,35 @@ def _fmt_dur(seconds: float) -> str:
 
 # ────────────────── 调豆包选段 ──────────────────
 
-SYSTEM_PROMPT_FIXED = """\
-你是直播切片编辑。给定带时间戳的台词文本（短语级，每行格式 [start-end] 台词），
-你要从中挑出 N 条对观众最有吸引力、信息密度高的片段，用于发布短视频。
-
-选段标准（按重要性）：
-1. **开头必须是钩子**：每条切片前3秒必须能抓住观众，开头必须是金句/冲突点/反常识观点/情绪爆点，**禁止以铺垫、承接、无意义发语词开头**（如"啊"、"那个"、"就是"、"然后呢"、"对吧"、"其实吧"等口癖和无信息量发语词开头），若候选段开头有这类词，自动往后吸附到第一个有实际信息量的短语边界作为segment起点
-2. 金句 / 结论性观点 / 干货总结
-3. 冲突 / 反转 / 悬念 / 情绪高点
-4. 内容完整可独立成段，不要选半截话
-
-切点工艺（提升成片质量）：
-- 文本里相邻短语之间的时间间隔代表静音。优先把切点落在间隔 ≥400ms 的静音处（最干净）；
-  150-400ms 的间隔可用；避免在 <150ms 的间隔切（很可能切在句中）。
-- 文本里出现的 (laughs)/(applause)/(sighs) 等括号标记是音频事件，代表情绪高点。
-  优先保留这些片段，并把切片末尾往后延一点以包含反应（笑声、掌声本身就是 beat）。
-- 多段拼接时，优先选同说话人、且段间有静音间隔处切，拼接更自然。
-
-一条切片可以由 1 个或多个 segment 拼成：
-- 当一个完整论点/故事在原视频里是连续的一段，用 1 个 segment。
-- 当一个完整论点分散在原视频几处不连续的地方（中间夹着无关内容），
-  把这几段作为同一条切片的多个 segment 拼在一起，使成片逻辑连贯。
-
-硬约束：
-- 每个 segment 的 start/end 必须落在文本里出现的某个 [start-end] 边界上，不得自己造时间戳
-- **第一条segment的开头必须是有信息量的内容，不能以无意义发语词/口癖/铺垫句开头**，确保观众点开前3秒就被抓住
-- 同一条切片的多个 segment 不得互相重叠，且按时间顺序排列
-- 每条切片的总时长（各 segment 时长之和）在 [MIN_DUR, MAX_DUR] 秒之间
-- 不同切片之间不得重叠
-- 选够 N 条（若素材确实不足，可少选，但不要凑数）
-
-只输出 JSON，格式：
-{"clips":[{"segments":[{"start":12.34,"end":20.00},{"start":35.50,"end":48.00}],
-          "title":"一句话标题","reason":"为什么选这条（可说明为何拼接）"}]}
-不要输出任何其它内容、不要 markdown 围栏。"""
-
-
 SYSTEM_PROMPT_AUTO = """\
-你是直播切片编辑。给定带时间戳的台词文本（短语级，每行格式 [start-end] 台词），
-你要从中挑出若干条对观众最有吸引力、信息密度高的高光片段，用于发布短视频。
+你是直播高光剪辑师，从带时间戳的直播台词中选出适合短视频发布的高价值片段。
 
-选段标准（按重要性）：
-1. **开头必须是钩子**：每条切片前3秒必须能抓住观众，开头必须是金句/冲突点/反常识观点/情绪爆点，**禁止以铺垫、承接、无意义发语词开头**（如"啊"、"那个"、"就是"、"然后呢"、"对吧"、"其实吧"等口癖和无信息量发语词开头），若候选段开头有这类词，自动往后吸附到第一个有实际信息量的短语边界作为segment起点
-2. 金句 / 结论性观点 / 干货总结
-3. 冲突 / 反转 / 悬念 / 情绪高点
-4. 内容完整可独立成段，不要选半截话
+【选段标准】
+1. 开头抓眼球：前3秒直接上核心内容，禁止口癖/发语词/无主语代词开头
+2. 内容优先：金句结论、实用干货、产品卖点/适用人群/效果演示/价格优势、冲突反转、情绪高点、完整故事/解答
+3. 仅过滤无实质信息/违规内容：
+   - 纯引导关注/点福袋/点赞话术、无产品信息的纯喊单催单
+   - 和主题无关的私人闲聊/突发状况
+   - 违规内容仅指：对本次直播售卖商品使用广告法禁用极限词（如"最""第一""100%有效""包治百病"等虚假宣传、医疗宣称）
+   - 👉 客观讨论第三方公司/技术/设备/行业现状的观点、事实陈述、个人真实体验中出现"最好""第一""最先进"等表述属于正常干货内容，全部保留，不要误删
+4. 正常讲解产品、分享使用体验、介绍优惠政策、行业观点、知识干货的内容全部保留，不要误删
+5. 每条片段独立完整，不选半截话
 
-参考密度指引：
-- 视频总时长已经告诉你，请据此判断合理条数。一般每小时直播约 5-8 条，金句密集/干货多可多切，内容平淡可少切。
-- 总数不少于 MIN_CLIPS 条、不多于 MAX_CLIPS 条（超过 2 小时的长视频可放宽到 16 条）。
-- 不要为凑数切水货片段；素材不足就少切，但每条都必须是真正的高光。
-- 不要把同一论点拆成多条。
+【切点规则】
+- 切点优先落在≥400ms静音处，150-400ms可用，禁止<150ms连读处硬切
+- 保留笑声/掌声等观众反应，结尾落在内容结束/停顿处，最多保留2秒自然收尾，不留过长空白和无关内容
+- 多段拼接不限间隔时长，只要同主题连贯即可，拼接处优先选自然停顿/观众反应位置避免跳戏，禁止拼接无关内容，严格按时间顺序排列
+- 每条片段start/end严格使用文本中短语的时间戳，不自行造时间
 
-切点工艺（提升成片质量）：
-- 文本里相邻短语之间的时间间隔代表静音。优先把切点落在间隔 ≥400ms 的静音处（最干净）；
-  150-400ms 的间隔可用；避免在 <150ms 的间隔切（很可能切在句中）。
-- 文本里出现的 (laughs)/(applause)/(sighs) 等括号标记是音频事件，代表情绪高点。
-  优先保留这些片段，并把切片末尾往后延一点以包含反应（笑声、掌声本身就是 beat）。
-- 多段拼接时，优先选同说话人、且段间有静音间隔处切，拼接更自然。
+【约束规则】
+- 时长：尽量控制在[MIN_DUR, MAX_DUR]秒，短爆点最短15秒，核心内容完整时最长允许超出上限20%，不砍核心内容、不凑冗余
+- 条数：根据内容密度自适应，娱乐/带货类每小时6-10条，干货/知识类每小时3-6条，2小时以上最多16条，宁少勿滥不凑水货
+- 不同片段不重叠，同一完整论点不拆成多条
+- 标题≤25字，清晰概括核心内容，不夸张标题党
 
-一条切片可以由 1 个或多个 segment 拼成：
-- 当一个完整论点/故事在原视频里是连续的一段，用 1 个 segment。
-- 当一个完整论点分散在原视频几处不连续的地方（中间夹着无关内容），
-  把这几段作为同一条切片的多个 segment 拼在一起，使成片逻辑连贯。
-
-硬约束：
-- 每个 segment 的 start/end 必须落在文本里出现的某个 [start-end] 边界上，不得自己造时间戳
-- **第一条segment的开头必须是有信息量的内容，不能以无意义发语词/口癖/铺垫句开头**
-- 同一条切片的多个 segment 不得互相重叠，且按时间顺序排列
-- 每条切片的总时长（各 segment 时长之和）在 [MIN_DUR, MAX_DUR] 秒之间（30秒-5分钟）
-- 不同切片之间不得重叠
-
-只输出 JSON，格式：
-{"clips":[{"segments":[{"start":12.34,"end":20.00},{"start":35.50,"end":48.00}],
-          "title":"一句话标题","reason":"为什么选这条（可说明为何拼接）"}]}
-不要输出任何其它内容、不要 markdown 围栏。"""
-
-
-def build_user_prompt_fixed(packed_md: str, count: int, min_dur: float, max_dur: float) -> str:
-    return (
-        f"请选出 {count} 条高吸引力切片。每条切片总时长 {min_dur:.0f}-{max_dur:.0f} 秒。\n\n"
-        f"以下是直播台词（时间戳为秒）：\n\n{packed_md}"
-    )
+仅输出纯JSON，不要markdown代码块围栏、不要多余解释：
+{"clips":[{"segments":[{"start":12.34,"end":20.00}],"title":"片段标题","reason":"选段说明"}]}
+"""
 
 
 def build_user_prompt_auto(packed_md: str, video_dur_s: float, min_dur: float, max_dur: float) -> tuple[str, int, int]:
@@ -232,8 +179,7 @@ def build_user_prompt_auto(packed_md: str, video_dur_s: float, min_dur: float, m
     else:  # ≥30分钟长直播，最少3条
         min_clips = 3
     prompt = (
-        f"视频总时长约 {dur_hint}。请自主判断合理条数（参考：每小时 5-8 条，"
-        f"不少于 {min_clips} 条，不多于 {max_clips} 条），每条切片总时长 {min_dur:.0f}-{max_dur:.0f} 秒。\n\n"
+        f"视频总时长约 {dur_hint}，请根据内容密度自主判断合理条数（不少于{min_clips}条、不多于{max_clips}条，宁少勿滥不凑数），每条总时长{min_dur:.0f}-{max_dur:.0f}秒。\n\n"
         f"以下是直播台词（时间戳为秒）：\n\n{packed_md}"
     )
     return prompt, min_clips, max_clips
@@ -262,56 +208,6 @@ def safe_json_loads(text: str) -> dict:
     if m:
         text = m.group(0)
     return json.loads(text)
-
-
-def call_doubao_fixed(
-    client: OpenAI,
-    model: str,
-    packed_md: str,
-    count: int,
-    min_dur: float,
-    max_dur: float,
-) -> list[dict]:
-    """固定条数模式调用豆包选段，返回clips列表。
-
-    JSON解析失败时自动重试一次，提示模型只输出纯JSON，降低temperature。
-
-    Args:
-        client: OpenAI兼容的Ark客户端
-        model: 使用的模型ID
-        packed_md: 打包后的markdown转录文本
-        count: 目标切片条数
-        min_dur: 单条最短时长（秒）
-        max_dur: 单条最长时长（秒）
-
-    Returns:
-        选段结果列表，每个元素包含segments分段、title标题、reason选段理由
-    """
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_FIXED},
-            {"role": "user", "content": build_user_prompt_fixed(packed_md, count, min_dur, max_dur)},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.3,
-    )
-    content = resp.choices[0].message.content or ""
-    try:
-        data = safe_json_loads(content)
-    except json.JSONDecodeError:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_FIXED + "\n务必只输出纯 JSON。"},
-                {"role": "user", "content": build_user_prompt_fixed(packed_md, count, min_dur, max_dur)},
-                {"role": "assistant", "content": content},
-                {"role": "user", "content": "上面不是合法 JSON，请只输出 JSON 对象。"},
-            ],
-            temperature=0.2,
-        )
-        data = safe_json_loads(resp.choices[0].message.content or "")
-    return data.get("clips", [])
 
 
 def call_doubao_auto(
@@ -716,7 +612,6 @@ def merge_and_snap(
 def select_clips(
     video: Path,
     edit_dir: Path,
-    count: int = 0,
     min_duration: float = 30.0,
     max_duration: float = 300.0,
     chunk_minutes: int = 0,
@@ -759,19 +654,15 @@ def select_clips(
     if not model:
         model = discover_model(client)
 
-    auto = (count is None or count <= 0)
-    video_dur = _probe_video_duration(video) if auto else 0.0
-    # auto 模式下的条数上限（用于 merge_and_snap 截断）
+    # 统一使用自动条数模式：根据视频长度和内容密度自动判断合理高光片段数，不支持固定条数指定
+    video_dur = _probe_video_duration(video)
     max_count = 16 if video_dur >= 7200 else 12
 
     if chunk_minutes <= 0:
-        _p("select", 20, "  豆包读完整转录，正在选段…（约 30-90 秒）")
-        if auto:
-            raw_clips = call_doubao_auto(client, model, packed_md, video_dur, min_duration, max_duration)
-        else:
-            raw_clips = call_doubao_fixed(client, model, packed_md, count, min_duration, max_duration)
+        _p("select", 20, "  豆包读完整转录，正在选高光片段…（约 30-90 秒）")
+        raw_clips = call_doubao_auto(client, model, packed_md, video_dur, min_duration, max_duration)
     else:
-        _p("select", 10, "  超长视频分块选段（跨块关联会丢失）")
+        _p("select", 10, "  超长视频分块选高光片段（跨块关联会丢失）")
         raw_clips = []
         stream_dur = phrases[-1]["end"] if phrases else 0
         chunk_s = chunk_minutes * 60
@@ -786,13 +677,10 @@ def select_clips(
             if not window_md.strip():
                 continue
             _p("select", 10 + int(80 * (i+1) / n), f"  选段 窗口 {i+1}/{n}")
-            if auto:
-                raw_clips.extend(call_doubao_auto(client, model, window_md, (w_end-w_start), min_duration, max_duration))
-            else:
-                raw_clips.extend(call_doubao_fixed(client, model, window_md, count, min_duration, max_duration))
+            raw_clips.extend(call_doubao_auto(client, model, window_md, (w_end-w_start), min_duration, max_duration))
 
     _p("select", 90, "  吸附短语边界、去重…")
-    limit = (count if count and count > 0 else max_count)
+    limit = max_count
     final = merge_and_snap(raw_clips, phrases, min_duration, max_duration, limit)
     print(f"豆包选出 {len(final)} 条切片（去重+吸附后）")
     for i, c in enumerate(final):

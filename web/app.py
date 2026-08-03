@@ -225,13 +225,6 @@ def api_start():
     if mode not in ("propose", "auto"):
         mode = "propose"
 
-    # 切片数量参数校验：0=自动，范围0-16
-    try:
-        num_clips = int(data.get("num_clips", 0))
-    except (TypeError, ValueError):
-        num_clips = 0
-    num_clips = max(0, min(num_clips, 16))
-
     # 调色模式校验
     allowed_grades = {"auto", "none", "light", "neutral_punch", "warm_cinematic"}
     grade = str(data.get("grade", "auto")).lower()
@@ -345,7 +338,6 @@ def api_start():
         subtitles=subtitles,
         output_dir=output_dir,
         preview=preview,
-        num_clips=num_clips,
         grade=grade,
         min_duration=min_duration,
         max_duration=max_duration,
@@ -575,7 +567,6 @@ def api_history_config():
             "mode": "auto",
             "subtitles": False,
             "preview": False,
-            "num_clips": 0,
             "grade": "auto",
             "min_duration": 30.0,
             "max_duration": 300.0,

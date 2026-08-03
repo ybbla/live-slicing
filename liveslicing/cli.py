@@ -131,7 +131,6 @@ def _fmt_dur(seconds: float) -> str:
 def run(
     video: Path,
     edit_dir: Path,
-    count: int = 0,
     min_duration: float = 30.0,
     max_duration: float = 300.0,
     grade: str = "auto",
@@ -140,12 +139,11 @@ def run(
     from_stage: str = "all",
     on_progress=None,
 ) -> dict:
-    """主流水线：完整跑通「转录→打包→选段→渲染」四阶段，返回manifest字典。
+    """主流水线：完整跑通「转录→打包→自动选高光→渲染」四阶段，返回manifest字典。
 
     Args:
         video: 输入直播视频路径
         edit_dir: 工作输出目录（存放转录缓存、打包文本、EDL、切片结果）
-        count: 目标切片条数，0=自动模式（豆包根据内容密度判断条数，每小时5-8条）
         min_duration: 单条切片最短时长（秒）
         max_duration: 单条切片最长时长（秒），多段拼接时为总时长
         grade: 调色模式：auto(智能自然微调，默认)/none(不调色)/light(轻度增强)/warm_cinematic(暖调电影感)
@@ -178,12 +176,8 @@ def run(
 
     # 3. 选段（edl会写入clips目录，软链接自动指向最新时间戳目录）
     if from_stage in ("all", "transcribe", "pack", "select"):
-        auto = (count <= 0)
-        if auto:
-            _p("select", 0, f"\n[3/4] 豆包选段（自动判断条数，单条 {min_duration:.0f}-{max_duration:.0f}s）")
-        else:
-            _p("select", 0, f"\n[3/4] 豆包选段 (count={count}, {min_duration:.0f}-{max_duration:.0f}s)")
-        select_clips(video, edit_dir, count=count if count > 0 else 0,
+        _p("select", 0, f"\n[3/4] 豆包自动选高光片段（自动判断条数，单条 {min_duration:.0f}-{max_duration:.0f}s）")
+        select_clips(video, edit_dir,
                      min_duration=min_duration, max_duration=max_duration,
                      chunk_minutes=0, on_progress=on_progress,
                      clips_dir=clips_dir)
@@ -216,7 +210,6 @@ def run(
             "mode": "auto",
             "subtitles": subtitles,
             "preview": preview,
-            "num_clips": count,
             "grade": grade,
             "min_duration": min_duration,
             "max_duration": max_duration,
@@ -562,7 +555,6 @@ def run_from_selection(
             "mode": "propose",
             "subtitles": subtitles,
             "preview": preview,
-            "num_clips": len(selected_props),
             "grade": grade,
             "min_duration": min_duration,
             "max_duration": max_duration,
@@ -602,8 +594,6 @@ def main() -> None:
     ap.add_argument("video", type=Path, help="输入的MP4直播/长视频文件路径")
     ap.add_argument("--edit-dir", type=Path, default=None,
                     help="工作目录（默认 data/output/<视频名>/，与Web UI历史记录共享，重名自动加(1)/(2)后缀；手动指定时使用自定义路径）")
-    ap.add_argument("--num-clips", type=int, default=0,
-                    help="目标切片条数（默认 0 = 自动模式，豆包根据内容密度决定条数，每小时约5-8条，不凑数）")
     ap.add_argument("--min-duration", type=float, default=30.0,
                     help="单条切片最短时长（秒，默认30秒，适配短视频平台最低时长要求）")
     ap.add_argument("--max-duration", type=float, default=300.0,
@@ -694,7 +684,7 @@ def main() -> None:
         # 默认全自动模式
         run(
             video=video, edit_dir=edit_dir,
-            count=args.num_clips, min_duration=args.min_duration, max_duration=args.max_duration,
+            min_duration=args.min_duration, max_duration=args.max_duration,
             grade=args.grade,
             subtitles=args.subtitles, preview=args.preview,
             from_stage=args.from_stage,
