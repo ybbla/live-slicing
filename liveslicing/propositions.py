@@ -44,7 +44,7 @@ PROPOSE_SYSTEM_PROMPT = """\
 
 【输出字段（严格按要求输出，字段不要增减）】
 id：从1开始连续编号
-title：≤20字，明确核心主题，清晰说明这个命题讲的是什么，不需要刻意追求夸张抓眼球的标题党风格，准确清晰即可
+title：为完整通顺的一句话/短语，≤20字，明确核心主题，清晰说明这个命题讲的是什么，不需要刻意追求夸张抓眼球的标题党风格，准确清晰即可，禁止使用空格分隔词语，使用正常中文标点，禁止关键词罗列风格
 summary：2-3句话，讲清核心内容，让人一眼知道这个片段讲了什么
 start/end：精确时间戳（秒），直接使用转录文本中该命题核心内容第一行的开始时间作为start，最后一行的结束时间作为end，完全对齐文本边界，不需要额外预留冗余、不要包含不属于该命题的无关过渡内容；必须完整包含命题的核心内容（引入、论证/展开、结论），绝对不要为了追求边界精准截断核心观点/结论；单条命题建议范围不超过15分钟，过长的连续内容如果有明显子主题可以拆分。精修阶段会自动在前后上下文窗口中查找更自然的开头结尾切点，不需要在此阶段预留冗余
 preview：原文中最能代表核心内容的2-4句连续原话，≤100字，必须一字不差复制，不总结不改写不省略主语，选择核心内容原文即可，不需要刻意挑选最有冲击力的爆点句子
@@ -95,7 +95,7 @@ REFINE_SYSTEM_PROMPT = """\
    - start/end必须是文本中出现过的短语时间戳，不自己造
    - 优先≥400ms静音处，150-400ms可用，禁止<150ms处切
    - 保留笑声/掌声等音频事件，结尾可延后包含观众反应
-7. **标题**：短视频标题，可沿用命题title或优化得更抓眼球
+7. **标题**：短视频标题，为完整通顺的一句话，不超过20字，可沿用命题title或优化得更抓眼球，禁止使用空格分隔词语，使用正常中文标点，禁止关键词罗列风格
 8. **reason**：简要说明选点逻辑和拼接调整
 
 【输出格式】纯JSON，无其他内容：
@@ -111,7 +111,7 @@ CUSTOM_PROP_SYSTEM_PROMPT = """\
 这些内容是用户手动选中的多个相关片段，你需要将它们整合为一个连贯的主题，就像正常提取命题一样输出标题、摘要和原文预览。
 
 【输出要求】
-- title：≤25字，清晰准确概括这些内容的整体主题，不需要夸张标题党风格
+- title：为完整通顺的一句话，≤20字，清晰准确概括这些内容的整体主题，不需要夸张标题党风格，禁止使用空格分隔词语，使用正常中文标点，禁止关键词罗列风格
 - summary：2-3句话，讲清整合后的核心内容，让人一眼知道讲了什么
 - preview：原文中最能代表核心内容的2-4句连续原话，≤100字，必须一字不差复制原文，不要改写
 - 命题必须独立自包含：标题/摘要/preview禁止使用无主语代词（它/这个/那个等），脱离上下文也能看懂
@@ -321,7 +321,7 @@ def _validate_propositions(props: list[dict], phrases: list[dict]) -> list[dict]
             preview = preview[:97] + "..."
         valid.append({
             "id": i + 1,  # 重新编号
-            "title": title,
+            "title": title.replace(" ", "").replace("　", ""),  # 移除所有半角/全角空格，避免渲染乱码
             "summary": summary,
             "start": round(start, 2),
             "end": round(end, 2),
@@ -444,9 +444,10 @@ def refine_single_proposition(
                 return None
             # 按时间排序
             valid_segs.sort(key=lambda x: x["start"])
+            final_title = (str(data.get("title", prop["title"])).strip() or prop["title"]).replace(" ", "").replace("　", "")
             return {
                 "segments": valid_segs,
-                "title": str(data.get("title", prop["title"])).strip() or prop["title"],
+                "title": final_title,  # 移除所有半角/全角空格，避免渲染乱码
                 "reason": str(data.get("reason", "")).strip(),
             }
         except Exception as e:
@@ -553,7 +554,7 @@ def merge_selected_propositions(
             # 构建新命题，时间范围使用精确的选中命题边界（转录文本自带的精确时间）
             new_prop = {
                 "id": -1,  # 自定义命题ID为-1，不影响逻辑
-                "title": str(data.get("title", f"整合{len(selected_props)}个内容")).strip(),
+                "title": str(data.get("title", f"整合{len(selected_props)}个内容")).strip().replace(" ", "").replace("　", ""),  # 移除所有半角/全角空格，避免渲染乱码
                 "summary": str(data.get("summary", "")).strip(),
                 "start": total_start,
                 "end": total_end,
@@ -807,7 +808,7 @@ def load_propositions(edit_dir: Path) -> list[dict] | None:
         for p in props:
             cleaned_props.append({
                 "id": p.get("id"),
-                "title": p.get("title", ""),
+                "title": str(p.get("title", "")).replace(" ", "").replace("　", ""),  # 移除所有半角/全角空格，避免渲染乱码
                 "summary": p.get("summary", ""),
                 "start": p.get("start", 0),
                 "end": p.get("end", 0),

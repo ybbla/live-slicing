@@ -30,6 +30,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 项目根目录，用于解析静态资源路径（背景图等）
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 try:
     from liveslicing.grade import get_preset, auto_grade_for_clip
 except Exception:
@@ -108,6 +111,20 @@ def get_subtitle_style(video_path: Path) -> str:
     except Exception:
         margin_v = 45  # 探测失败时的安全默认值
     return f"{SUB_FORCE_STYLE_BASE},MarginV={margin_v}"
+
+# -------- 竖屏背景+标题合成常量（适配国内短视频平台9:16标准） --
+#
+# -------- 竖屏背景+标题合成常量 --
+#
+# 画布宽度固定为1080px，高度由背景图等比缩放后的高度动态决定
+# 默认背景图general.png原始尺寸941x1672≈9:16，缩放至1080宽时高度≈1920px
+# 符合抖音/视频号/小红书/快手平台9:16标准；更换其他比例背景图时高度自动适配
+BG_CANVAS_W = 1080
+# 标题默认样式配置，位置完全动态计算无固定偏移
+BG_TITLE_FONT_SIZE = 42
+BG_TITLE_OUTLINE = 2
+# 默认通用背景图路径（竖屏）
+DEFAULT_BG_PATH = PROJECT_ROOT / "background" / "general.png"
 
 # -------- 工具函数 ------------------------------------------------------------
 
@@ -884,6 +901,158 @@ def build_final_composite(
         run(["ffmpeg", "-y", "-i", str(base_path), "-c", "copy", str(out_path)], quiet=True)
 
 
+def apply_background_title(
+    input_path: Path,
+    title: str,
+    output_path: Path,
+    preview: bool = False,
+) -> bool:
+    """将视频贴到竖屏背景图上，并在顶部绘制标题。
+
+    画布宽度固定为BG_CANVAS_W(1080px)，高度由背景图等比缩放后的高度动态决定，默认9:16下为1920px：
+    1. 背景图等比缩放到1080宽（预览960宽），高度按比例自适应，完整显示不裁剪
+    2. 原视频等比缩放到1080宽（预览960宽），高度按比例自适应，不裁剪拉伸，保持原始宽高比
+    3. 视频在背景图上水平+垂直完全居中放置
+    4. 标题水平居中，垂直居中于背景顶部(y=0)到视频顶部之间的空白区域
+    5. 标题自动折行最多2行，特殊字符自动转义
+
+    Args:
+        input_path: 输入视频路径（已完成调色、字幕烧录的中间视频）
+        title: 顶部显示的标题文本，为空时仅贴背景不显示标题
+        output_path: 输出合成后视频路径
+        preview: 是否为预览模式，预览模式宽度960使用更快的编码参数
+
+    Returns:
+        合成成功返回True，失败（背景图不存在/ffmpeg执行错误）返回False，调用方应降级为直接使用原视频
+    """
+    if not DEFAULT_BG_PATH.exists():
+        print(f"  warning: background image not found at {DEFAULT_BG_PATH}, skipping background compositing")
+        return False
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 探测视频总时长
+    video_dur = _probe_duration(input_path)
+    if video_dur <= 0:
+        print(f"  warning: failed to probe video duration, skipping background compositing")
+        return False
+
+    # 探测输入视频原始宽高，用于计算缩放后视频尺寸和标题位置
+    src_fg_w, src_fg_h = 1920, 1080  # 探测失败时的安全默认值（横屏16:9）
+    try:
+        probe_out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", str(input_path)],
+            capture_output=True, text=True, check=True,
+            encoding="utf-8", errors="replace",
+        )
+        src_fg_w, src_fg_h = map(int, probe_out.stdout.strip().split(","))
+    except Exception:
+        print(f"  warning: failed to probe video dimensions, using defaults")
+
+    # 探测背景图原始宽高，用于计算画布高度
+    src_bg_w, src_bg_h = 941, 1672  # 默认背景图尺寸
+    try:
+        probe_bg = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", str(DEFAULT_BG_PATH)],
+            capture_output=True, text=True, check=True,
+            encoding="utf-8", errors="replace",
+        )
+        src_bg_w, src_bg_h = map(int, probe_bg.stdout.strip().split(","))
+    except Exception:
+        print(f"  warning: failed to probe background image dimensions, using defaults")
+
+    # 处理标题：自动折行为最多两行，转义特殊字符直接传入drawtext，避免临时文件编码问题
+    title_text = ""
+    if title and title.strip():
+        title_clean = title.strip()
+        if len(title_clean) <= 12:
+            # 短标题单行显示
+            title_text = title_clean
+        else:
+            # 长标题强制折为两行，每行不超过12字，保证在1080宽度内不自动折行
+            mid = len(title_clean) // 2
+            # 优先在标点/空格位置折行
+            for i in range(mid-3, mid+3):
+                if i < len(title_clean) and title_clean[i] in ("，", "。", "！", "？", "、", " ", "："):
+                    mid = i + 1
+                    break
+            line1 = title_clean[:mid][:12]
+            line2 = title_clean[mid:][:12]
+            title_text = f"{line1}\n{line2}"
+        # 转义ffmpeg drawtext特殊字符：冒号、单引号、反斜杠、换行等
+        title_text = title_text.replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'").replace("[", r"\[").replace("]", r"\]").replace("\n", r"\n")
+
+    try:
+        # 预计算所有尺寸常量
+        scale_w = 960 if preview else BG_CANVAS_W  # 预览模式960宽，正式1080宽
+        # 背景图等比缩放到scale_w宽，高度按比例自适应，取偶数（yuv420p编码要求）
+        bg_scaled_h = int(round(scale_w * src_bg_h / src_bg_w / 2) * 2)
+        bg_scaled_h = max(bg_scaled_h, 2)  # 保证最小高度
+        # 前景视频等比缩放到scale_w宽，高度按比例自适应，取偶数
+        fg_h = int(round(scale_w * src_fg_h / src_fg_w / 2) * 2)
+        fg_h = max(fg_h, 2)  # 保证最小高度
+        # 视频在背景上垂直居中时，视频顶部到画布顶部的y坐标（水平居中时x=0，因为宽度相同）
+        fg_top_y = (bg_scaled_h - fg_h) // 2
+
+        # 构建滤镜链
+        filter_parts = []
+        # 1. 背景图等比缩放到目标宽度，高度按比例自适应，不裁剪，完整显示
+        filter_parts.append(
+            f"[0:v]scale={scale_w}:-2[bg]"
+        )
+        # 2. 输入视频缩放：等比缩放到满宽（1080/960），高度按比例自适应，-2保证偶数符合yuv420p要求
+        filter_parts.append(f"[1:v]scale={scale_w}:-2[fg]")
+        # 3. 视频在背景图上水平垂直居中：宽度相同x=0，y为预计算的fg_top_y
+        filter_parts.append(f"[bg][fg]overlay=x=0:y={fg_top_y}[bg_vid]")
+        # 4. 标题：水平居中，垂直居中在背景顶部(y=0)到视频顶部(y=fg_top_y)之间的空白区域
+        out_label = "[bg_vid]"
+        if title_text:
+            filter_parts.append(
+                "[bg_vid]drawtext=fontfile='C\\:/Windows/Fonts/msyhbd.ttc':"
+                f"text='{title_text}':"
+                f"fontsize={BG_TITLE_FONT_SIZE}:fontcolor=white:borderw={BG_TITLE_OUTLINE}:bordercolor=black:"
+                f"x=(w-text_w)/2:y=({fg_top_y}-text_h)/2:line_spacing=10[outv]"
+            )
+            out_label = "[outv]"
+
+        filter_complex = ";".join(filter_parts)
+
+        # 编码参数与现有合成参数保持一致
+        preset, crf = ("medium", "22") if preview else ("fast", "18")
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-framerate", "25", "-i", str(DEFAULT_BG_PATH),
+            "-i", str(input_path),
+            "-filter_complex", filter_complex,
+            "-map", out_label,
+            "-map", "1:a?",  # 复制原视频音频流，无音频时不报错
+            "-t", f"{video_dur:.3f}",  # 明确指定输出时长，避免ffmpeg因背景图loop一直运行不退出
+            "-c:v", "libx264", "-preset", preset, "-crf", crf,
+            "-pix_fmt", "yuv420p",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+
+        print(f"  compositing background + title → {output_path.name}")
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, encoding="utf-8", errors="replace")
+        # 验证输出文件有效（大于100KB），避免编码异常生成损坏文件
+        if output_path.exists() and output_path.stat().st_size > 100 * 1024:
+            return True
+        print(f"  warning: background compositing produced invalid file, falling back")
+        return False
+    except subprocess.CalledProcessError as e:
+        print(f"  warning: background compositing failed, falling back to original video: {e.stderr[-200:] if e.stderr else str(e)}")
+        return False
+    finally:
+        pass
+
+
 # -------- 主入口 ---------------------------------------------------------------
 
 
@@ -999,6 +1168,7 @@ def render_clips(
     out_dir: Path | None = None,
     *,
     subtitles: bool = True,
+    background: bool = False,
     preview: bool = False,
     self_eval: bool = True,
     _self_eval_fn=None,
@@ -1011,6 +1181,7 @@ def render_clips(
         edit_dir: 编辑工作目录
         out_dir: 输出目录，默认是edit_dir/clips
         subtitles: 是否烧录字幕，默认True
+        background: 是否启用竖屏背景+顶部标题模式，默认False，启用后输出1080×1920 9:16竖屏尺寸，适配国内短视频平台
         preview: 是否为预览模式
         self_eval: 是否启用自评估质量检查
         _self_eval_fn: 自评估函数，用于质量检查和自动修复
@@ -1264,6 +1435,15 @@ def render_clips(
                 build_final_composite(base, [], srt_path, subbed, edit_dir, source_video=src_path)
                 sub_base = subbed
 
+        # 竖屏背景+标题合成（单片段/多片段路径汇合后统一处理）
+        bg_tmp = None
+        if background:
+            clip_title = clip.get("title") or clip.get("reason") or ""
+            bg_tmp = clips_dir / f"clip_{clip_idx:03d}_bg.mp4"
+            ok = apply_background_title(sub_base, clip_title, bg_tmp, preview=preview)
+            if ok:
+                sub_base = bg_tmp
+
         # 响度标准化
         final = clips_dir / f"clip_{clip_idx:03d}.mp4"
         ok = apply_loudnorm_two_pass(sub_base, final, preview=preview)
@@ -1275,6 +1455,8 @@ def render_clips(
             sp.unlink(missing_ok=True)
         base.unlink(missing_ok=True)
         subbed.unlink(missing_ok=True)
+        if bg_tmp is not None:
+            bg_tmp.unlink(missing_ok=True)
         final.with_suffix(".prenorm.mp4").unlink(missing_ok=True)
 
         # 质量检查

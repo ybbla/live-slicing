@@ -135,6 +135,7 @@ def run(
     max_duration: float = 300.0,
     grade: str = "auto",
     subtitles: bool = False,
+    background: bool = False,
     preview: bool = False,
     from_stage: str = "all",
     on_progress=None,
@@ -148,6 +149,7 @@ def run(
         max_duration: 单条切片最长时长（秒），多段拼接时为总时长
         grade: 调色模式：auto(智能自然微调，默认)/none(不调色)/light(轻度增强)/warm_cinematic(暖调电影感)
         subtitles: 是否烧录硬字幕，默认False仅生成独立srt文件
+        background: 是否启用竖屏背景+顶部标题模式，默认False，启用后输出1080×1920 9:16竖屏尺寸，适配国内短视频平台
         preview: 是否快速预览模式（低质量快速渲染，跳过vision质检，用于先看选段效果）
         from_stage: 从指定阶段续跑，复用已有缓存：all(从头)/transcribe(跳过转录)/pack(跳过转录+打包)/select(只跑选段+渲染)
         on_progress: 进度回调函数，签名为(stage: str, percent: int, message: str)，供Web UI更新进度条
@@ -191,7 +193,9 @@ def run(
     _p("render", 1, "  准备渲染…")
     paths, qc_flags = render.render_clips(
         edl, edit_dir, clips_dir,
-        subtitles=subtitles, preview=preview,
+        subtitles=subtitles,
+        background=background,
+        preview=preview,
         self_eval=not preview,
         _self_eval_fn=pick_clips.self_eval_clip,
         on_progress=on_progress,
@@ -209,6 +213,7 @@ def run(
         "config": {
             "mode": "auto",
             "subtitles": subtitles,
+            "background": background,
             "preview": preview,
             "grade": grade,
             "min_duration": min_duration,
@@ -410,6 +415,7 @@ def run_from_selection(
     selected_prop_ids: list[int],
     grade: str = "auto",
     subtitles: bool = False,
+    background: bool = False,
     preview: bool = False,
     min_duration: float = 30.0,
     max_duration: float = 300.0,
@@ -425,6 +431,7 @@ def run_from_selection(
         selected_prop_ids: 用户选中的命题ID列表
         grade: 调色模式
         subtitles: 是否烧录硬字幕
+        background: 是否启用竖屏背景+顶部标题模式
         preview: 是否快速预览模式
         min_duration: 单条最小时长
         max_duration: 单条最大时长
@@ -535,7 +542,9 @@ def run_from_selection(
     _p("render", 1, "  准备渲染…")
     paths, qc_flags = render.render_clips(
         edl, edit_dir, clips_dir,
-        subtitles=subtitles, preview=preview,
+        subtitles=subtitles,
+        background=background,
+        preview=preview,
         self_eval=not preview,
         _self_eval_fn=pick_clips.self_eval_clip,
         on_progress=on_progress,
@@ -554,6 +563,7 @@ def run_from_selection(
         "config": {
             "mode": "propose",
             "subtitles": subtitles,
+            "background": background,
             "preview": preview,
             "grade": grade,
             "min_duration": min_duration,
@@ -602,6 +612,8 @@ def main() -> None:
                     help="调色模式：auto=智能自然微调(默认，幅度≤8%%无痕迹)/none=原色调无修改/light=轻度对比度/饱和度增强/warm_cinematic=暖调电影感风格")
     ap.add_argument("--subtitles", action="store_true",
                     help="烧录硬字幕到视频画面（默认关闭，仅生成独立 .srt 字幕文件，可自行选择是否挂载）")
+    ap.add_argument("--background", action="store_true",
+                    help="启用竖屏背景+顶部标题模式，使用默认背景图background/general.png，输出1080×1920 9:16竖屏尺寸，适配抖音/视频号/小红书等国内短视频平台")
     ap.add_argument("--preview", action="store_true",
                     help="快速预览模式：低质量快速渲染、跳过Vision质检，速度快3-5倍，仅用于验证选段效果，不适合最终发布")
     ap.add_argument("--from-stage", type=str, default="all",
@@ -676,7 +688,9 @@ def main() -> None:
             video=video, edit_dir=edit_dir,
             selected_prop_ids=selected_ids,
             grade=args.grade,
-            subtitles=args.subtitles, preview=args.preview,
+            subtitles=args.subtitles,
+            background=args.background,
+            preview=args.preview,
             min_duration=args.min_duration, max_duration=args.max_duration,
             max_concurrency=args.concurrent,
         )
@@ -686,7 +700,9 @@ def main() -> None:
             video=video, edit_dir=edit_dir,
             min_duration=args.min_duration, max_duration=args.max_duration,
             grade=args.grade,
-            subtitles=args.subtitles, preview=args.preview,
+            subtitles=args.subtitles,
+            background=args.background,
+            preview=args.preview,
             from_stage=args.from_stage,
         )
 

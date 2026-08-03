@@ -43,6 +43,7 @@ class Job:
         id: 任务唯一ID（8位hex）
         video_path: 源视频路径
         subtitles: 是否烧录硬字幕
+        background: 是否启用竖屏背景+顶部标题模式
         preview: 是否快速预览模式
         grade: 调色模式
         min_duration: 单条最短时长（秒）
@@ -68,6 +69,7 @@ class Job:
     video_path: Path
     subtitles: bool
     output_dir: Path
+    background: bool = False
     preview: bool = False
     grade: str = "auto"
     min_duration: float = 30.0
@@ -247,6 +249,7 @@ class JobManager:
         video_path: Path,
         subtitles: bool,
         output_dir: Path,
+        background: bool = False,
         preview: bool = False,
         grade: str = "auto",
         min_duration: float = 30.0,
@@ -260,6 +263,7 @@ class JobManager:
             video_path: 源视频路径
             subtitles: 是否烧录硬字幕
             output_dir: 输出目录
+            background: 是否启用竖屏背景+顶部标题模式
             preview: 是否快速预览模式
             grade: 调色模式
             min_duration: 单条最短时长（秒）
@@ -280,6 +284,7 @@ class JobManager:
                 id=uuid.uuid4().hex[:8],
                 video_path=video_path.resolve(),
                 subtitles=bool(subtitles),
+                background=bool(background),
                 output_dir=output_dir.resolve(),
                 preview=bool(preview),
                 grade=str(grade),
@@ -450,6 +455,7 @@ class JobManager:
                     selected_prop_ids=job.selected_prop_ids,
                     grade=job.grade,
                     subtitles=job.subtitles,
+                    background=job.background,
                     preview=job.preview,
                     min_duration=job.min_duration,
                     max_duration=job.max_duration,
@@ -465,6 +471,7 @@ class JobManager:
                     max_duration=job.max_duration,
                     grade=job.grade,
                     subtitles=job.subtitles,
+                    background=job.background,
                     preview=job.preview,
                     from_stage=job.from_stage,
                     on_progress=on_progress,

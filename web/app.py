@@ -216,6 +216,7 @@ def api_start():
     data = request.get_json(force=True) or {}
     video_str = (data.get("video") or "").strip()
     subtitles = bool(data.get("subtitles", False))
+    background = bool(data.get("background", False))
     preview = bool(data.get("preview", False))
     reuse_dir_str = (data.get("reuse_dir") or "").strip()
     reuse_dir = None
@@ -336,6 +337,7 @@ def api_start():
     job = jm.start(
         video_path=video_path,
         subtitles=subtitles,
+        background=background,
         output_dir=output_dir,
         preview=preview,
         grade=grade,
@@ -476,31 +478,77 @@ def api_history():
         versions = []
         for mtime, clips_dir in clips_dirs:
             try:
-                manifest_path = clips_dir / "manifest.json"
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                clips = manifest.get("clips", [])
-                total_dur = sum(c.get("duration", 0) for c in clips)
-                config = manifest.get("config", {})
                 # 计算相对OUTPUT_DIR的路径，用于版本化文件访问
                 try:
                     clips_rel = str(clips_dir.resolve().relative_to(OUTPUT_DIR.resolve())).replace("\\", "/")
                 except ValueError:
                     clips_rel = clips_dir.name
+
+                manifest_path = clips_dir / "manifest.json"
+                if manifest_path.exists():
+                    # 有manifest的新版本，直接读取信息
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    clips = manifest.get("clips", [])
+                    total_dur = sum(c.get("duration", 0) for c in clips)
+                    config = manifest.get("config", {})
+                    # 优先使用manifest中记录的任务创建时间（ISO格式），不存在则 fallback 到目录修改时间
+                    created_at_str = manifest.get("created_at")
+                    if created_at_str:
+                        try:
+                            from datetime import datetime
+                            created_at = datetime.fromisoformat(created_at_str).timestamp()
+                        except (ValueError, TypeError):
+                            created_at = mtime
+                    else:
+                        created_at = mtime
+                else:
+                    # 无manifest的旧版本，自动扫描clip_*.mp4文件
+                    clip_files = sorted(clips_dir.glob("clip_*.mp4"))
+                    clips = []
+                    total_dur = 0.0
+                    for idx, clip_file in enumerate(clip_files, start=1):
+                        try:
+                            # ffprobe探测单个视频时长
+                            probe = subprocess.run(
+                                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                 "-of", "default=noprint_wrappers=1:nokey=1", str(clip_file)],
+                                capture_output=True, text=True, check=True, encoding="utf-8", errors="replace"
+                            )
+                            dur = float(probe.stdout.strip() or 0.0)
+                            total_dur += dur
+                            # 同名srt文件存在则标记
+                            srt_file = clip_file.with_suffix(".srt")
+                            clips.append({
+                                "index": idx,
+                                "duration": round(dur, 2),
+                                "file": clip_file.name,
+                                "srt": srt_file.name if srt_file.exists() else None,
+                                "title": f"切片{idx}",
+                                "reason": "",
+                            })
+                        except Exception:
+                            continue
+                    config = {}
+                    created_at = mtime
+
                 versions.append({
                     "clips_dir": str(clips_dir),
                     "clips_rel": clips_rel,
-                    "created_at": mtime,
+                    "created_at": created_at,
                     "clip_count": len(clips),
                     "total_duration": round(total_dur, 1),
                     "clips": clips,
                     "config": config,
                 })
             except Exception:
-                # 损坏的manifest跳过，不影响其他版本
+                # 损坏的目录跳过，不影响其他版本
                 continue
 
         if not versions:
             continue
+
+        # 按真实创建时间倒序排列，最新版本在前
+        versions.sort(reverse=True, key=lambda x: x["created_at"])
 
         # 最新版本信息
         latest = versions[0]
@@ -512,6 +560,9 @@ def api_history():
             "version_count": len(versions),
             "versions": versions,
         })
+
+    # 所有任务按最新版本的创建时间倒序排列，最新的任务在最上面
+    items.sort(reverse=True, key=lambda x: x["created_at"])
     return jsonify({"items": items})
 
 
